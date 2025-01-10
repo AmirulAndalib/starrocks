@@ -40,6 +40,7 @@ struct SchemaChangeParams {
     TabletSharedPtr new_tablet;
     std::vector<std::unique_ptr<TabletReader>> rowset_readers;
     Version version;
+    int64_t gtid = 0;
     TabletSchemaCSPtr base_tablet_schema = nullptr;
     std::vector<RowsetSharedPtr> rowsets_to_change;
     bool sc_sorting = false;
@@ -104,7 +105,7 @@ public:
     }
 
 private:
-    Buffer<uint8_t> _execute_where_expr(ChunkPtr& chunk);
+    StatusOr<Buffer<uint8_t>> _execute_where_expr(ChunkPtr& chunk);
 
 private:
     TabletSchemaCSPtr _base_schema;
@@ -160,8 +161,8 @@ private:
                                        bool* sc_sorting, bool* sc_directly,
                                        std::unordered_set<int>* materialized_column_idxs);
 
-    static Status parse_request_for_pk(const TabletSchemaCSPtr& base_schema, const TabletSchemaCSPtr& new_schema,
-                                       bool* sc_sorting, bool* sc_directly);
+    static Status parse_request_for_sort_key(const TabletSchemaCSPtr& base_schema, const TabletSchemaCSPtr& new_schema,
+                                             bool* sc_sorting, bool* sc_directly);
 };
 
 } // namespace starrocks

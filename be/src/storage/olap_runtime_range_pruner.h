@@ -28,30 +28,31 @@ class SlotDescriptor;
 class RuntimeFilterProbeDescriptor;
 class PredicateParser;
 class ColumnPredicate;
+class RuntimeBloomFilterEvalContext;
 
 struct UnarrivedRuntimeFilterList {
     std::vector<const RuntimeFilterProbeDescriptor*> unarrived_runtime_filters;
     std::vector<const SlotDescriptor*> slot_descs;
-    void add_unarrived_rf(const RuntimeFilterProbeDescriptor* desc, const SlotDescriptor* slot_desc) {
+    int32_t driver_sequence = -1;
+    void add_unarrived_rf(const RuntimeFilterProbeDescriptor* desc, const SlotDescriptor* slot_desc,
+                          int32_t driver_sequence_) {
         unarrived_runtime_filters.push_back(desc);
         slot_descs.push_back(slot_desc);
+        driver_sequence = driver_sequence_;
     }
 };
 
 class OlapRuntimeScanRangePruner {
 public:
-    using PredicatesPtrs = std::vector<std::unique_ptr<ColumnPredicate>>;
     using PredicatesRawPtrs = std::vector<const ColumnPredicate*>;
     using RuntimeFilterArrivedCallBack = std::function<Status(int, const PredicatesRawPtrs&)>;
-    static constexpr auto rf_update_threhold = 4096 * 10;
+    static constexpr auto rf_update_threshold = 4096 * 10;
 
     OlapRuntimeScanRangePruner() = default;
     OlapRuntimeScanRangePruner(PredicateParser* parser, const UnarrivedRuntimeFilterList& params) {
         _parser = parser;
         _init(params);
     }
-
-    void set_predicate_parser(PredicateParser* parser) { _parser = parser; }
 
     Status update_range_if_arrived(const ColumnIdToGlobalDictMap* global_dictmaps,
                                    RuntimeFilterArrivedCallBack&& updater, size_t raw_read_rows) {
@@ -62,15 +63,15 @@ public:
 private:
     std::vector<const RuntimeFilterProbeDescriptor*> _unarrived_runtime_filters;
     std::vector<const SlotDescriptor*> _slot_descs;
+    int32_t _driver_sequence = -1;
     std::vector<bool> _arrived_runtime_filters_masks;
     std::vector<size_t> _rf_versions;
     PredicateParser* _parser = nullptr;
     size_t _raw_read_rows = 0;
 
-    // get predicate
-    StatusOr<PredicatesPtrs> _get_predicates(const ColumnIdToGlobalDictMap* global_dictmaps, size_t idx);
-
-    PredicatesRawPtrs _as_raw_predicates(const std::vector<std::unique_ptr<ColumnPredicate>>& predicates);
+    // get predicates
+    StatusOr<PredicatesRawPtrs> _get_predicates(const ColumnIdToGlobalDictMap* global_dictmaps, size_t idx,
+                                                ObjectPool* pool);
 
     Status _update(const ColumnIdToGlobalDictMap* global_dictmaps, RuntimeFilterArrivedCallBack&& updater,
                    size_t raw_read_rows);

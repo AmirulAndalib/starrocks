@@ -30,6 +30,8 @@ import java.util.Optional;
 public class HiveConnector implements Connector {
     public static final String HIVE_METASTORE_URIS = "hive.metastore.uris";
     public static final String HIVE_METASTORE_TYPE = "hive.metastore.type";
+    public static final String HIVE_METASTORE_TIMEOUT = "hive.metastore.timeout";
+    public static final String HIVE_METASTORE_CONNECTION_POOL_SIZE = "hive.metastore.connection.pool.size";
     private final Map<String, String> properties;
     private final String catalogName;
     private final HiveConnectorInternalMgr internalMgr;
@@ -66,12 +68,13 @@ public class HiveConnector implements Connector {
                 internalMgr.isSearchRecursive(),
                 internalMgr.enableHmsEventsIncrementalSync(),
                 hdfsEnvironment,
-                internalMgr.getMetastoreType()
+                internalMgr.getMetastoreType(),
+                properties
         );
     }
 
     public void onCreate() {
-        Optional<CacheUpdateProcessor> updateProcessor = metadataFactory.getCacheUpdateProcessor();
+        Optional<HiveCacheUpdateProcessor> updateProcessor = metadataFactory.getCacheUpdateProcessor();
         if (internalMgr.enableHmsEventsIncrementalSync()) {
             updateProcessor.ifPresent(processor -> GlobalStateMgr.getCurrentState().getMetastoreEventsProcessor()
                     .registerCacheUpdateProcessor(catalogName, updateProcessor.get()));
@@ -88,7 +91,7 @@ public class HiveConnector implements Connector {
     @Override
     public void shutdown() {
         internalMgr.shutdown();
-        metadataFactory.getCacheUpdateProcessor().ifPresent(CacheUpdateProcessor::invalidateAll);
+        metadataFactory.getCacheUpdateProcessor().ifPresent(HiveCacheUpdateProcessor::invalidateAll);
         GlobalStateMgr.getCurrentState().getMetastoreEventsProcessor().unRegisterCacheUpdateProcessor(catalogName);
         GlobalStateMgr.getCurrentState().getConnectorTableMetadataProcessor().unRegisterCacheUpdateProcessor(catalogName);
     }

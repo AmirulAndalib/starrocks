@@ -187,7 +187,7 @@ public:
         auto v = itr->second;
         auto entry = *v;
         if (entry->_ref != 1) {
-            VLOG(1) << "try_remove_by_key() failed: cache entry ref != 1 " << entry->_value;
+            VLOG(2) << "try_remove_by_key() failed: cache entry ref != 1 " << entry->_value;
             return false;
         } else {
             _map.erase(itr);
@@ -303,7 +303,8 @@ public:
 
     std::vector<std::pair<Key, size_t>> get_entry_sizes() const {
         std::lock_guard<std::mutex> lg(_lock);
-        std::vector<std::pair<Key, size_t>> ret(_map.size());
+        std::vector<std::pair<Key, size_t>> ret;
+        ret.reserve(_map.size());
         auto itr = _list.begin();
         while (itr != _list.end()) {
             Entry* entry = (*itr);

@@ -52,8 +52,8 @@ import com.starrocks.sql.ast.LoadStmt;
 import com.starrocks.task.LeaderTask;
 import com.starrocks.task.LeaderTaskExecutor;
 import com.starrocks.thrift.TUniqueId;
-import com.starrocks.transaction.BeginTransactionException;
 import com.starrocks.transaction.GlobalTransactionMgr;
+import com.starrocks.transaction.RunningTxnExceedException;
 import com.starrocks.transaction.TransactionState;
 import mockit.Expectations;
 import mockit.Injectable;
@@ -80,7 +80,7 @@ public class LoadJobTest {
         Deencapsulation.setField(loadJob, "dbId", 1L);
         new Expectations() {
             {
-                globalStateMgr.getDb(1L);
+                globalStateMgr.getLocalMetastore().getDb(1L);
                 minTimes = 0;
                 result = null;
             }
@@ -128,13 +128,13 @@ public class LoadJobTest {
     @Test
     public void testExecute(@Mocked GlobalTransactionMgr globalTransactionMgr,
                             @Mocked LeaderTaskExecutor leaderTaskExecutor)
-            throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException {
+            throws LabelAlreadyUsedException, RunningTxnExceedException, AnalysisException, DuplicatedRequestException {
         LoadJob loadJob = new BrokerLoadJob();
         new Expectations() {
             {
                 globalTransactionMgr.beginTransaction(anyLong, Lists.newArrayList(), anyString, (TUniqueId) any,
                         (TransactionState.TxnCoordinator) any,
-                        (TransactionState.LoadJobSourceType) any, anyLong, anyLong);
+                        (TransactionState.LoadJobSourceType) any, anyLong, anyLong, anyLong);
                 minTimes = 0;
                 result = 1;
                 leaderTaskExecutor.submit((LeaderTask) any);

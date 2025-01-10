@@ -17,7 +17,7 @@ package com.starrocks.qe.scheduler;
 import com.google.api.client.util.Lists;
 import com.google.common.collect.Maps;
 import com.starrocks.common.Reference;
-import com.starrocks.common.UserException;
+import com.starrocks.common.StarRocksException;
 import com.starrocks.proto.PCancelPlanFragmentRequest;
 import com.starrocks.proto.PCancelPlanFragmentResult;
 import com.starrocks.proto.PExecPlanFragmentResult;
@@ -157,8 +157,8 @@ public class StartSchedulingTest extends SchedulerTestBase {
         String sql = "select count(1) from lineitem";
 
         Assert.assertThrows("test runtime exception", RpcException.class, () -> startScheduling(sql));
-        SimpleScheduler.removeFromBlacklist(backend3.getId());
-        Awaitility.await().atMost(5, TimeUnit.SECONDS).until(() -> !SimpleScheduler.isInBlacklist(backend3.getId()));
+        SimpleScheduler.removeFromBlocklist(backend3.getId());
+        Awaitility.await().atMost(5, TimeUnit.SECONDS).until(() -> !SimpleScheduler.isInBlocklist(backend3.getId()));
     }
 
     @Test
@@ -185,13 +185,13 @@ public class StartSchedulingTest extends SchedulerTestBase {
         deployFuture.setRef(
                 mockFutureWithException(new ExecutionException("test execution exception", new Exception())));
         Assert.assertThrows("test execution exception", RpcException.class, () -> startScheduling(sql));
-        SimpleScheduler.removeFromBlacklist(backend3.getId());
-        Awaitility.await().atMost(5, TimeUnit.SECONDS).until(() -> !SimpleScheduler.isInBlacklist(backend3.getId()));
+        SimpleScheduler.removeFromBlocklist(backend3.getId());
+        Awaitility.await().atMost(5, TimeUnit.SECONDS).until(() -> !SimpleScheduler.isInBlocklist(backend3.getId()));
 
         isFirstFragmentToDeploy.set(true);
         deployFuture.setRef(mockFutureWithException(new InterruptedException("test interrupted exception")));
         DefaultCoordinator scheduler = getScheduler(sql);
-        Assert.assertThrows("test interrupted exception", UserException.class, () -> scheduler.startScheduling());
+        Assert.assertThrows("test interrupted exception", StarRocksException.class, () -> scheduler.exec());
 
         // The deployed executions haven't reported.
         Assert.assertFalse(scheduler.isDone());
@@ -253,7 +253,7 @@ public class StartSchedulingTest extends SchedulerTestBase {
         String sql =
                 "select count(1) from lineitem UNION ALL select count(1) from lineitem UNION ALL select count(1) from lineitem";
         DefaultCoordinator scheduler = getScheduler(sql);
-        Assert.assertThrows("test error message", UserException.class, scheduler::startScheduling);
+        Assert.assertThrows("test error message", StarRocksException.class, scheduler::exec);
 
         // All the deployed fragment instances should be cancelled.
         Assert.assertEquals(successDeployedFragmentCount, cancelledInstanceIds.size());
@@ -288,7 +288,7 @@ public class StartSchedulingTest extends SchedulerTestBase {
 
             String sql = "select count(1) from lineitem t1 JOIN [shuffle] lineitem t2 using(l_orderkey)";
             DefaultCoordinator scheduler = getScheduler(sql);
-            Assert.assertThrows("deploy query timeout", UserException.class, () -> scheduler.startScheduling());
+            Assert.assertThrows("deploy query timeout", StarRocksException.class, () -> scheduler.exec());
         } finally {
             connectContext.getSessionVariable().setQueryDeliveryTimeoutS(prevQueryDeliveryTimeoutSecond);
         }
@@ -336,12 +336,12 @@ public class StartSchedulingTest extends SchedulerTestBase {
         // Shouldn't block by the failed cancelled instance.
         Assert.assertTrue(scheduler.isDone());
 
-        SimpleScheduler.removeFromBlacklist(BACKEND1_ID);
-        SimpleScheduler.removeFromBlacklist(backend2.getId());
-        SimpleScheduler.removeFromBlacklist(backend3.getId());
+        SimpleScheduler.removeFromBlocklist(BACKEND1_ID);
+        SimpleScheduler.removeFromBlocklist(backend2.getId());
+        SimpleScheduler.removeFromBlocklist(backend3.getId());
         Awaitility.await().atMost(5, TimeUnit.SECONDS).until(() ->
-                !SimpleScheduler.isInBlacklist(BACKEND1_ID) && !SimpleScheduler.isInBlacklist(backend2.getId()) &&
-                        !SimpleScheduler.isInBlacklist(backend3.getId()));
+                !SimpleScheduler.isInBlocklist(BACKEND1_ID) && !SimpleScheduler.isInBlocklist(backend2.getId()) &&
+                        !SimpleScheduler.isInBlocklist(backend3.getId()));
     }
 
     private static Future<PExecPlanFragmentResult> mockFutureWithException(Exception exception) {

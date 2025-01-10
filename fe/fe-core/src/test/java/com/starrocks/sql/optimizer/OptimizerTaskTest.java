@@ -22,6 +22,7 @@ import com.starrocks.analysis.FunctionName;
 import com.starrocks.analysis.JoinOperator;
 import com.starrocks.catalog.AggregateFunction;
 import com.starrocks.catalog.Column;
+import com.starrocks.catalog.ColumnId;
 import com.starrocks.catalog.Function;
 import com.starrocks.catalog.FunctionSet;
 import com.starrocks.catalog.HashDistributionInfo;
@@ -54,11 +55,13 @@ import com.starrocks.sql.optimizer.operator.logical.LogicalTopNOperator;
 import com.starrocks.sql.optimizer.operator.physical.PhysicalDistributionOperator;
 import com.starrocks.sql.optimizer.operator.physical.PhysicalHashAggregateOperator;
 import com.starrocks.sql.optimizer.operator.physical.PhysicalOlapScanOperator;
+import com.starrocks.sql.optimizer.operator.scalar.ArrayOperator;
 import com.starrocks.sql.optimizer.operator.scalar.BinaryPredicateOperator;
 import com.starrocks.sql.optimizer.operator.scalar.CallOperator;
 import com.starrocks.sql.optimizer.operator.scalar.ColumnRefOperator;
 import com.starrocks.sql.optimizer.operator.scalar.ConstantOperator;
 import com.starrocks.sql.optimizer.operator.scalar.ScalarOperator;
+import com.starrocks.sql.optimizer.rule.transformation.SplitTwoPhaseAggRule;
 import com.starrocks.utframe.UtFrameUtils;
 import mockit.Expectations;
 import mockit.Mocked;
@@ -95,6 +98,7 @@ public class OptimizerTaskTest {
         ctx.getSessionVariable().setMaxTransformReorderJoins(8);
         ctx.getSessionVariable().setEnableReplicationJoin(false);
         ctx.getSessionVariable().setJoinImplementationMode("auto");
+        ctx.getSessionVariable().setCboPushDownAggregateMode(-1);
         ctx.setDumpInfo(new MockDumpInfo());
         call = new CallOperator(FunctionSet.SUM, Type.BIGINT, Lists.newArrayList(ConstantOperator.createBigint(1)));
         new Expectations(call) {
@@ -445,21 +449,25 @@ public class OptimizerTaskTest {
                 result = new ArrayList<>(scanColumnMap.values());
                 minTimes = 0;
             }
+
             {
                 olapTable2.getBaseSchema();
                 result = new ArrayList<>(scanColumnMap.values());
                 minTimes = 0;
             }
+
             {
                 olapTable3.getBaseSchema();
                 result = new ArrayList<>(scanColumnMap.values());
                 minTimes = 0;
             }
+
             {
                 olapTable4.getBaseSchema();
                 result = new ArrayList<>(scanColumnMap.values());
                 minTimes = 0;
             }
+
             {
                 olapTable5.getBaseSchema();
                 result = new ArrayList<>(scanColumnMap.values());
@@ -1188,7 +1196,7 @@ public class OptimizerTaskTest {
         List<ColumnRefOperator> scanColumns = Lists.newArrayList(column1);
 
         Map<ColumnRefOperator, Column> scanColumnMap = Maps.newHashMap();
-        scanColumnMap.put(column1, new Column());
+        scanColumnMap.put(column1, new Column("k1", Type.INT));
 
         Map<ColumnRefOperator, CallOperator> map = Maps.newHashMap();
         LogicalAggregationOperator aggregationOperator =
@@ -1299,7 +1307,8 @@ public class OptimizerTaskTest {
         };
 
         CallOperator call =
-                new CallOperator(FunctionSet.SUM, Type.BIGINT, Lists.newArrayList(ConstantOperator.createInt(1)));
+                new CallOperator(FunctionSet.SUM, Type.BIGINT, Lists.newArrayList(ConstantOperator.createInt(1)),
+                        null, true);
 
         new Expectations(call) {
             {
@@ -1307,9 +1316,6 @@ public class OptimizerTaskTest {
                 result = new ColumnRefSet(1);
                 minTimes = 0;
 
-                call.isDistinct();
-                result = true;
-                minTimes = 0;
 
                 call.getFunction();
                 result = AggregateFunction.createBuiltin(FunctionSet.SUM,
@@ -1363,16 +1369,13 @@ public class OptimizerTaskTest {
         };
 
         CallOperator call =
-                new CallOperator(FunctionSet.COUNT, Type.BIGINT, Lists.newArrayList(ConstantOperator.createInt(1)));
+                new CallOperator(FunctionSet.COUNT, Type.BIGINT, Lists.newArrayList(ConstantOperator.createInt(1)),
+                        null, true);
 
         new Expectations(call) {
             {
                 call.getUsedColumns();
                 result = new ColumnRefSet(1);
-                minTimes = 0;
-
-                call.isDistinct();
-                result = true;
                 minTimes = 0;
 
                 call.getFunction();
@@ -1432,7 +1435,7 @@ public class OptimizerTaskTest {
 
         List<ColumnRefOperator> scanColumns = Lists.newArrayList(column1);
         Map<ColumnRefOperator, Column> scanColumnMap = Maps.newHashMap();
-        scanColumnMap.put(column1, new Column());
+        scanColumnMap.put(column1, new Column("k1", Type.INT));
 
         Map<ColumnRefOperator, ScalarOperator> projectColumnMap = Maps.newHashMap();
         projectColumnMap.put(column1, column1);
@@ -1553,7 +1556,7 @@ public class OptimizerTaskTest {
         List<ColumnRefOperator> scanColumns = Lists.newArrayList(column1, column2);
 
         Map<ColumnRefOperator, Column> scanColumnMap = Maps.newHashMap();
-        scanColumnMap.put(column1, new Column());
+        scanColumnMap.put(column1, new Column("k1", Type.INT));
 
         Map<ColumnRefOperator, ScalarOperator> projectColumnMap1 = Maps.newHashMap();
         projectColumnMap1.put(column3, column1);
@@ -1949,11 +1952,11 @@ public class OptimizerTaskTest {
 
         MaterializedIndex m1 = new MaterializedIndex();
         m1.setRowCount(100000000);
-        Partition p1 = new Partition(0, "p1", m1, hashDistributionInfo1);
+        Partition p1 = new Partition(0, 10, "p1", m1, hashDistributionInfo1);
 
         MaterializedIndex m2 = new MaterializedIndex();
         m2.setRowCount(20000000);
-        Partition p2 = new Partition(1, "p2", m2, hashDistributionInfo2);
+        Partition p2 = new Partition(1, 11, "p2", m2, hashDistributionInfo2);
         new Expectations() {
             {
                 olapTable1.getId();
@@ -2051,13 +2054,17 @@ public class OptimizerTaskTest {
         columnList2.add(column4);
         HashDistributionInfo hashDistributionInfo2 = new HashDistributionInfo(3, columnList2);
 
+        Map<ColumnId, Column> idToColumn = Maps.newTreeMap(ColumnId.CASE_INSENSITIVE_ORDER);
+        idToColumn.put(column2.getColumnId(), column2);
+        idToColumn.put(column4.getColumnId(), column4);
+
         MaterializedIndex m1 = new MaterializedIndex();
         m1.setRowCount(100000000);
-        Partition p1 = new Partition(0, "p1", m1, hashDistributionInfo1);
+        Partition p1 = new Partition(0, 10, "p1", m1, hashDistributionInfo1);
 
         MaterializedIndex m2 = new MaterializedIndex();
         m2.setRowCount(20000000);
-        Partition p2 = new Partition(1, "p2", m2, hashDistributionInfo2);
+        Partition p2 = new Partition(1, 11, "p2", m2, hashDistributionInfo2);
 
         new Expectations() {
             {
@@ -2065,7 +2072,7 @@ public class OptimizerTaskTest {
                 result = 0;
                 minTimes = 0;
 
-                olapTable1.getPartitions();
+                olapTable1.getVisiblePartitions();
                 result = Lists.newArrayList(p1);
                 minTimes = 0;
 
@@ -2080,6 +2087,10 @@ public class OptimizerTaskTest {
                 olapTable1.isNativeTableOrMaterializedView();
                 result = true;
                 minTimes = 0;
+
+                olapTable1.getIdToColumn();
+                result = idToColumn;
+                minTimes = 0;
             }
 
             {
@@ -2087,7 +2098,7 @@ public class OptimizerTaskTest {
                 result = 1;
                 minTimes = 0;
 
-                olapTable2.getPartitions();
+                olapTable2.getVisiblePartitions();
                 result = Lists.newArrayList(p2);
                 minTimes = 0;
 
@@ -2101,6 +2112,10 @@ public class OptimizerTaskTest {
 
                 olapTable2.isNativeTableOrMaterializedView();
                 result = true;
+                minTimes = 0;
+
+                olapTable2.getIdToColumn();
+                result = idToColumn;
                 minTimes = 0;
             }
         };
@@ -2162,11 +2177,15 @@ public class OptimizerTaskTest {
 
         MaterializedIndex m1 = new MaterializedIndex();
         m1.setRowCount(1000000);
-        Partition p1 = new Partition(0, "p1", m1, hashDistributionInfo1);
+        Partition p1 = new Partition(0, 10, "p1", m1, hashDistributionInfo1);
 
         MaterializedIndex m2 = new MaterializedIndex();
         m2.setRowCount(2000000);
-        Partition p2 = new Partition(1, "p2", m2, hashDistributionInfo2);
+        Partition p2 = new Partition(1, 11, "p2", m2, hashDistributionInfo2);
+
+        Map<ColumnId, Column> idToColumn = Maps.newTreeMap(ColumnId.CASE_INSENSITIVE_ORDER);
+        idToColumn.put(column2.getColumnId(), column2);
+        idToColumn.put(column4.getColumnId(), column4);
 
         new Expectations() {
             {
@@ -2193,6 +2212,10 @@ public class OptimizerTaskTest {
                 olapTable1.isNativeTableOrMaterializedView();
                 result = true;
                 minTimes = 0;
+
+                olapTable1.getIdToColumn();
+                result = idToColumn;
+                minTimes = 0;
             }
 
             {
@@ -2214,6 +2237,10 @@ public class OptimizerTaskTest {
 
                 olapTable2.isNativeTableOrMaterializedView();
                 result = true;
+                minTimes = 0;
+
+                olapTable2.getIdToColumn();
+                result = idToColumn;
                 minTimes = 0;
             }
         };
@@ -2267,7 +2294,7 @@ public class OptimizerTaskTest {
                 result = 0;
                 minTimes = 0;
 
-                olapTable1.getPartitions();
+                olapTable1.getVisiblePartitions();
                 result = Lists.newArrayList(p1);
                 minTimes = 0;
 
@@ -2289,7 +2316,7 @@ public class OptimizerTaskTest {
                 result = 1;
                 minTimes = 0;
 
-                olapTable2.getPartitions();
+                olapTable2.getVisiblePartitions();
                 result = Lists.newArrayList(p2);
                 minTimes = 0;
 
@@ -2324,5 +2351,59 @@ public class OptimizerTaskTest {
         assertEquals(rightOperator.getDistributionSpec().getType(), DistributionSpec.DistributionType.BROADCAST);
         rightScan = (PhysicalOlapScanOperator) physicalTree.getInputs().get(1).getInputs().get(0).getOp();
         assertEquals(olapTable1.getId(), rightScan.getTable().getId());
+    }
+
+    @Test
+    public void testSplitAggregateRuleConstantColumns(@Mocked OlapTable olapTable1) {
+        ctx.getSessionVariable().setNewPlanerAggStage(2);
+
+        ColumnRefOperator column1 = columnRefFactory.create("t1", ScalarType.INT, true);
+        ColumnRefOperator column2 = columnRefFactory.create("agg", ScalarType.INT, true);
+
+        Map<ColumnRefOperator, Column> scanColumnMap = Maps.newHashMap();
+        scanColumnMap.put(column1, new Column());
+
+        List<ScalarOperator> arguments = new ArrayList<>();
+        arguments.add(column1);
+        arguments.add(new ConstantOperator("const_str", Type.VARCHAR));
+
+        List<ScalarOperator> arrayValues = new ArrayList<>();
+        arrayValues.add(new ConstantOperator(1, Type.INT));
+        arrayValues.add(new ConstantOperator(2, Type.INT));
+        arguments.add(new ArrayOperator(Type.INT, false, arrayValues));
+
+        List<ScalarOperator> functionArguments = new ArrayList<>();
+        CallOperator constFunction = new CallOperator("call", Type.INT, functionArguments);
+        arguments.add(constFunction);
+
+        List<Type> aggFnArguments = new ArrayList<>();
+        aggFnArguments.add(Type.INT);
+        aggFnArguments.add(Type.VARCHAR);
+        aggFnArguments.add(Type.ARRAY_INT);
+        aggFnArguments.add(Type.INT);
+        Function fn = new AggregateFunction(new FunctionName("agg_function"), aggFnArguments, Type.INT, Type.INT, false);
+        CallOperator aggFunction = new CallOperator("agg", Type.INT, arguments, fn);
+        Map<ColumnRefOperator, CallOperator> map = Maps.newHashMap();
+        map.put(column2, aggFunction);
+        LogicalAggregationOperator aggregationOperator =
+                new LogicalAggregationOperator(AggType.GLOBAL, Lists.newArrayList(column1), map);
+
+        OptExpression expression = OptExpression.create(aggregationOperator,
+                OptExpression.create(
+                        new LogicalOlapScanOperator(olapTable1, scanColumnMap, Maps.newHashMap(), null, -1,
+                                null)));
+
+        SplitTwoPhaseAggRule splitTwoPhaseAggRule = SplitTwoPhaseAggRule.getInstance();
+        List<OptExpression> list = splitTwoPhaseAggRule.transform(
+                expression, new OptimizerContext(new Memo(), new ColumnRefFactory()));
+
+        assertEquals(OperatorType.LOGICAL_AGGR, list.get(0).getOp().getOpType());
+        LogicalAggregationOperator result = (LogicalAggregationOperator) list.get(0).getOp();
+
+        // The merge stage of the aggregate function should accept 3 constant columns.
+        assertEquals(AggType.GLOBAL, result.getType());
+        assertEquals(1, result.getAggregations().values().size());
+        assertEquals(OperatorType.CALL, result.getAggregations().get(column2).getOpType());
+        assertEquals(4, result.getAggregations().get(column2).getChildren().size());
     }
 }

@@ -52,11 +52,13 @@ public abstract class OptimizerTask {
             if (groupExpression.hasRuleExplored(rule)) {
                 continue;
             }
-
             if (!rule.getPattern().matchWithoutChild(groupExpression)) {
                 continue;
             }
             if (optimizerConfig.isRuleDisable(rule.type())) {
+                continue;
+            }
+            if (rule.exhausted(context.getOptimizerContext())) {
                 continue;
             }
             validRules.add(rule);
