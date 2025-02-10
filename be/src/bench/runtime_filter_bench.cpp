@@ -54,7 +54,7 @@ static void do_benchmark_hash_partitioned(benchmark::State& state, TRuntimeFilte
         ++num_rows_per_partitions[hash_values[i]];
     }
 
-    JoinRuntimeFilter::RunningContext running_ctx;
+    RuntimeFilter::RunningContext running_ctx;
     running_ctx.selection.assign(num_rows, 2);
     running_ctx.use_merged_selection = false;
     running_ctx.compatibility = true;
@@ -77,7 +77,7 @@ static void do_benchmark_hash_partitioned(benchmark::State& state, TRuntimeFilte
         for (auto j = 0; j < num_rows; ++j) {
             auto ele = column->get(j).get_int32();
             auto pp = hash_values[j] + (i * num_partitions);
-            bfs[pp].insert(&ele);
+            bfs[pp].insert(ele);
         }
 
         for (auto p = 0; p < num_partitions; ++p) {
@@ -89,10 +89,13 @@ static void do_benchmark_hash_partitioned(benchmark::State& state, TRuntimeFilte
     }
     // compute hash
     {
+        RuntimeFilterLayout layout;
+        layout.init(1, {});
+
         int64_t t0 = MonotonicMillis();
         auto& grf = gfs[0];
         grf.set_join_mode(join_mode);
-        grf.compute_hash(column_ptrs, &running_ctx);
+        grf.compute_partition_index(layout, column_ptrs, &running_ctx);
         int64_t t1 = MonotonicMillis();
         state.counters["compute_hash_time(ms)"] = t1 - t0;
         // auto& ctx_hash_values = running_ctx.hash_values;

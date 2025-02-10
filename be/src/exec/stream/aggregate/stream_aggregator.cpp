@@ -26,8 +26,8 @@ namespace starrocks::stream {
 
 namespace {
 
-void append_prev_result(ChunkPtr result_chunk, const Columns& group_by_columns, size_t row_idx, ChunkPtr prev_result,
-                        size_t prev_result_idx) {
+void append_prev_result(const ChunkPtr& result_chunk, const Columns& group_by_columns, size_t row_idx,
+                        const ChunkPtr& prev_result, size_t prev_result_idx) {
     DCHECK_EQ(result_chunk->num_columns(), group_by_columns.size() + prev_result->num_columns());
     auto columns = result_chunk->columns();
     for (size_t i = 0; i < group_by_columns.size(); i++) {
@@ -233,7 +233,7 @@ Status StreamAggregator::_output_result_changes_with_retract(size_t chunk_size, 
     // compute agg count to decide whehter to generate retract info.
     auto agg_count_column = down_cast<const Int64Column*>(
             final_result_chunk->get_column_by_index(_group_by_columns.size() + _count_agg_idx).get());
-    auto agg_count_column_data = agg_count_column->get_data();
+    const auto& agg_count_column_data = agg_count_column->get_data();
 
     // 2. seek previous results from result state table.
     StateTableResult prev_state_result;

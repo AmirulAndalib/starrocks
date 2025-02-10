@@ -12,16 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-
 package com.starrocks.connector.iceberg.cost;
 
 import com.google.common.collect.AbstractSequentialIterator;
 import com.google.common.collect.HashMultimap;
-import com.google.common.collect.Multimap;
 import com.starrocks.catalog.Column;
 import com.starrocks.catalog.IcebergTable;
+import com.starrocks.connector.PredicateSearchKey;
+import com.starrocks.connector.TableVersionRange;
 import com.starrocks.connector.exception.StarRocksConnectorException;
-import com.starrocks.connector.iceberg.IcebergFilter;
 import com.starrocks.sql.optimizer.OptimizerContext;
 import com.starrocks.sql.optimizer.operator.scalar.ColumnRefOperator;
 import com.starrocks.sql.optimizer.operator.scalar.ScalarOperator;
@@ -70,27 +69,48 @@ public class IcebergStatisticProvider {
 
     // table uuid -> <partition column id -> partition column values>
     private final Map<String, HashMultimap<Integer, Object>> uuidToPartitionFieldIdToValues = new HashMap<>();
-    private final Map<IcebergFilter, IcebergFileStats> icebergFileStatistics = new HashMap<>();
-    private final Multimap<IcebergFilter, String> scannedFiles = HashMultimap.create();
+    private final Map<PredicateSearchKey, IcebergFileStats> icebergFileStatistics = new HashMap<>();
+    private final Map<PredicateSearchKey, Set<String>> scannedFiles = new HashMap<>();
 
     public IcebergStatisticProvider() {
+    }
+
+    public Statistics getCardinalityStats(
+            Map<ColumnRefOperator, Column> colRefToColumnMetaMap, List<FileScanTask> fileScanTasks) {
+        Statistics.Builder statisticsBuilder = Statistics.builder();
+        long cardinality = 0;
+        Set<String> currentFiles = new HashSet<>();
+        for (FileScanTask scanTask : fileScanTasks) {
+            DataFile dataFile = scanTask.file();
+            String filePath = dataFile.path().toString();
+            if (currentFiles.contains(filePath)) {
+                continue;
+            }
+
+            currentFiles.add(filePath);
+            cardinality += dataFile.recordCount();
+        }
+
+        statisticsBuilder.setOutputRowCount(cardinality);
+        statisticsBuilder.addColumnStatistics(buildUnknownColumnStatistics(colRefToColumnMetaMap.keySet()));
+        return statisticsBuilder.build();
     }
 
     public Statistics getTableStatistics(IcebergTable icebergTable,
                                          Map<ColumnRefOperator, Column> colRefToColumnMetaMap,
                                          OptimizerContext session,
-                                         ScalarOperator predicate) {
+                                         ScalarOperator predicate,
+                                         TableVersionRange version) {
         Table nativeTable = icebergTable.getNativeTable();
         Statistics.Builder statisticsBuilder = Statistics.builder();
-        Optional<Snapshot> snapshot = icebergTable.getSnapshot();
         String uuid = icebergTable.getUUID();
-        if (snapshot.isPresent()) {
+        if (version.end().isPresent()) {
             Set<Integer> primitiveColumnsFieldIds = nativeTable.schema().columns().stream()
                     .filter(column -> column.type().isPrimitiveType())
                     .map(Types.NestedField::fieldId).collect(Collectors.toSet());
             Map<Integer, Long> colIdToNdvs = new HashMap<>();
             if (session != null && session.getSessionVariable().enableReadIcebergPuffinNdv()) {
-                colIdToNdvs = readNumDistinctValues(icebergTable, primitiveColumnsFieldIds);
+                colIdToNdvs = readNumDistinctValues(icebergTable, primitiveColumnsFieldIds, version);
                 if (uuidToPartitionFieldIdToValues.containsKey(uuid) && !uuidToPartitionFieldIdToValues.get(uuid).isEmpty()) {
                     HashMultimap<Integer, Object> partitionFieldIdToValue = uuidToPartitionFieldIdToValues.get(uuid);
                     Map<Integer, Long> partitionSourceIdToNdv = new HashMap<>();
@@ -105,8 +125,8 @@ public class IcebergStatisticProvider {
                 }
             }
 
-            IcebergFilter key = IcebergFilter.of(icebergTable.getRemoteDbName(), icebergTable.getRemoteTableName(),
-                    snapshot.get().snapshotId(), predicate);
+            PredicateSearchKey key = PredicateSearchKey.of(icebergTable.getCatalogDBName(), icebergTable.getCatalogTableName(),
+                    version.end().get(), predicate);
             IcebergFileStats icebergFileStats;
             if (!icebergFileStatistics.containsKey(key)) {
                 icebergFileStats = new IcebergFileStats(1);
@@ -132,7 +152,7 @@ public class IcebergStatisticProvider {
     public void updateIcebergFileStats(IcebergTable icebergTable, FileScanTask fileScanTask,
                                        Map<Integer, Type.PrimitiveType> idToTypeMapping,
                                        List<Types.NestedField> nonPartitionPrimitiveColumns,
-                                       IcebergFilter key) {
+                                       PredicateSearchKey key) {
         String uuid = icebergTable.getUUID();
 
         Table nativeTable = icebergTable.getNativeTable();
@@ -145,11 +165,12 @@ public class IcebergStatisticProvider {
             return;
         }
 
-        if (scannedFiles.containsEntry(key, dataFile.path().toString())) {
+        Set<String> files = scannedFiles.computeIfAbsent(key, ignored -> new HashSet<>());
+        if (files.contains(dataFile.path().toString())) {
             return;
         }
 
-        scannedFiles.put(key, dataFile.path().toString());
+        files.add(dataFile.path().toString());
 
         PartitionData partitionData = (PartitionData) fileScanTask.file().partition();
         for (int i = 0; i < partitionData.size(); i++) {
@@ -222,6 +243,14 @@ public class IcebergStatisticProvider {
 
             columnStatistics.put(columnList.get(0), buildColumnStatistic(
                     idColumn.getKey(), colRefToColumnMetaMap.get(columnList.get(0)), icebergFileStats, colIdToNdv));
+        }
+
+        // when we rewrit plan, we will add some artificial columns which not eixst in iceberg table,
+        // and we will mark those columns as unknown column statistics.
+        for (ColumnRefOperator c : colRefToColumnMetaMap.keySet()) {
+            if (!columnStatistics.containsKey(c)) {
+                columnStatistics.put(c, ColumnStatistic.unknown());
+            }
         }
 
         return columnStatistics;
@@ -345,13 +374,14 @@ public class IcebergStatisticProvider {
         }
     }
 
-    public static Map<Integer, Long> readNumDistinctValues(IcebergTable icebergTable, Set<Integer> columnIds) {
+    public static Map<Integer, Long> readNumDistinctValues(IcebergTable icebergTable, Set<Integer> columnIds,
+                                                           TableVersionRange version) {
         Map<Integer, Long> colIdToNdv = new HashMap<>();
         Set<Integer> remainingColumnIds = new HashSet<>(columnIds);
 
         long snapshotId;
-        if (icebergTable.getSnapshot().isPresent()) {
-            snapshotId = icebergTable.getSnapshot().get().snapshotId();
+        if (version.end().isPresent()) {
+            snapshotId = version.end().get();
         } else {
             return colIdToNdv;
         }
