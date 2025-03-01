@@ -1,41 +1,3 @@
-[sql]
-select
-    cntrycode,
-    count(*) as numcust,
-    sum(c_acctbal) as totacctbal
-from
-    (
-        select
-            substring(c_phone , 1  ,2) as cntrycode,
-            c_acctbal
-        from
-            customer
-        where
-                substring(c_phone , 1  ,2)  in
-                ('21', '28', '24', '32', '35', '34', '37')
-          and c_acctbal > (
-            select
-                avg(c_acctbal)
-            from
-                customer
-            where
-                    c_acctbal > 0.00
-              and substring(c_phone , 1  ,2)  in
-                  ('21', '28', '24', '32', '35', '34', '37')
-        )
-          and not exists (
-                select
-                    *
-                from
-                    orders
-                where
-                        o_custkey = c_custkey
-            )
-    ) as custsale
-group by
-    cntrycode
-order by
-    cntrycode ;
 [fragment statistics]
 PLAN FRAGMENT 0(F09)
 Output Exprs:29: substring | 30: count | 31: sum
@@ -164,6 +126,7 @@ TABLE: customer
 NON-PARTITION PREDICATES: substring(5: c_phone, 1, 2) IN ('21', '28', '24', '32', '35', '34', '37')
 partitions=1/1
 avgRowSize=31.0
+dataCacheOptions={populate: false}
 cardinality: 7500000
 column statistics:
 * c_custkey-->[1.0, 1.5E7, 0.0, 8.0, 7500000.0] ESTIMATE
@@ -217,6 +180,7 @@ NON-PARTITION PREDICATES: 14: c_acctbal > 0.00, substring(13: c_phone, 1, 2) IN 
 MIN/MAX PREDICATES: 14: c_acctbal > 0.00
 partitions=1/1
 avgRowSize=23.0
+dataCacheOptions={populate: false}
 cardinality: 6818187
 column statistics:
 * c_phone-->[-Infinity, Infinity, 0.0, 15.0, 6818187.396704358] ESTIMATE
@@ -232,6 +196,7 @@ OutPut Exchange Id: 01
 TABLE: orders
 partitions=1/1
 avgRowSize=8.0
+dataCacheOptions={populate: false}
 cardinality: 150000000
 probe runtime filters:
 - filter_id = 0, probe_expr = (20: o_custkey)

@@ -23,6 +23,13 @@
 
 namespace starrocks {
 
+#define APPLY_FOR_ALL_INT_TYPE(M) \
+    M(TYPE_TINYINT)               \
+    M(TYPE_SMALLINT)              \
+    M(TYPE_INT)                   \
+    M(TYPE_BIGINT)                \
+    M(TYPE_LARGEINT)
+
 #define APPLY_FOR_ALL_NUMBER_TYPE(M) \
     M(TYPE_TINYINT)                  \
     M(TYPE_SMALLINT)                 \
@@ -142,6 +149,8 @@ auto type_dispatch_all(LogicalType ltype, Functor fun, Args... args) {
     switch (ltype) {
         APPLY_FOR_ALL_SCALAR_TYPE_WITH_NULL(_TYPE_DISPATCH_CASE)
         _TYPE_DISPATCH_CASE(TYPE_ARRAY)
+        _TYPE_DISPATCH_CASE(TYPE_STRUCT)
+        _TYPE_DISPATCH_CASE(TYPE_MAP)
         _TYPE_DISPATCH_CASE(TYPE_HLL)
         _TYPE_DISPATCH_CASE(TYPE_OBJECT)
         _TYPE_DISPATCH_CASE(TYPE_PERCENTILE)
