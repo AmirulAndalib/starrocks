@@ -26,15 +26,17 @@ import com.starrocks.catalog.FunctionSet;
 import com.starrocks.catalog.PrimitiveType;
 import com.starrocks.catalog.ScalarType;
 import com.starrocks.catalog.Type;
-import com.starrocks.common.AnalysisException;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.sql.common.ErrorType;
 import com.starrocks.sql.common.StarRocksPlannerException;
+import com.starrocks.sql.optimizer.function.MetaFunctions;
 import com.starrocks.sql.optimizer.operator.OperatorType;
 import com.starrocks.sql.optimizer.operator.scalar.CallOperator;
+import com.starrocks.sql.optimizer.operator.scalar.CastOperator;
 import com.starrocks.sql.optimizer.operator.scalar.ConstantOperator;
 import com.starrocks.sql.optimizer.operator.scalar.ScalarOperator;
+import org.apache.commons.collections4.ListUtils;
 import org.apache.commons.lang.exception.ExceptionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -73,8 +75,11 @@ public enum ScalarOperatorEvaluator {
 
         ImmutableMap.Builder<FunctionSignature, FunctionInvoker> mapBuilder = new ImmutableMap.Builder<>();
 
+        Class<?> metaFunctions = MetaFunctions.class;
         Class<?> clazz = ScalarOperatorFunctions.class;
-        for (Method method : clazz.getDeclaredMethods()) {
+        for (Method method : ListUtils.union(
+                Lists.newArrayList(clazz.getDeclaredMethods()),
+                Lists.newArrayList(metaFunctions.getDeclaredMethods()))) {
             ConstantFunction annotation = method.getAnnotation(ConstantFunction.class);
             registerFunction(mapBuilder, method, annotation);
 
@@ -113,7 +118,10 @@ public enum ScalarOperatorEvaluator {
         if (invoker == null || !invoker.isMetaFunction) {
             return null;
         }
-        return new Function(name, Lists.newArrayList(args), Type.VARCHAR, false);
+
+        Function function = new Function(name, Lists.newArrayList(args), Type.VARCHAR, false);
+        function.setMetaFunction(true);
+        return function;
     }
 
     public ScalarOperator evaluation(CallOperator root) {
@@ -185,17 +193,18 @@ public enum ScalarOperatorEvaluator {
 
         try {
             ConstantOperator operator = invoker.invoke(root.getChildren());
-
             // check return result type, decimal will change return type
-            if (operator.getType().getPrimitiveType() != fn.getReturnType().getPrimitiveType()) {
+            if (!operator.isNull() &&
+                    operator.getType().getPrimitiveType() != fn.getReturnType().getPrimitiveType()) {
                 Preconditions.checkState(operator.getType().isDecimalOfAnyVersion());
                 Preconditions.checkState(fn.getReturnType().isDecimalOfAnyVersion());
                 operator.setType(fn.getReturnType());
             }
-
             return operator;
-        } catch (AnalysisException e) {
-            LOG.debug("failed to invoke", e);
+        } catch (Exception e) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("failed to invoke", e);
+            }
             if (invoker.isMetaFunction) {
                 throw new StarRocksPlannerException(ErrorType.USER_ERROR, ExceptionUtils.getRootCauseMessage(e));
             }
@@ -203,13 +212,50 @@ public enum ScalarOperatorEvaluator {
         return root;
     }
 
+    public boolean isMonotonicFunction(CallOperator call) {
+        if (call instanceof CastOperator) {
+            return true;
+        }
+        FunctionSignature signature;
+        if (call.getFunction() != null) {
+            Function fn = call.getFunction();
+            List<Type> argTypes = Arrays.asList(fn.getArgs());
+            signature = new FunctionSignature(fn.functionName().toUpperCase(), argTypes, fn.getReturnType());
+        } else {
+            List<Type> argTypes = call.getArguments().stream().map(ScalarOperator::getType).collect(Collectors.toList());
+            signature = new FunctionSignature(call.getFnName().toUpperCase(), argTypes, call.getType());
+        }
+
+        FunctionInvoker invoker = functions.get(signature);
+
+        return invoker != null && isMonotonicFunc(invoker, call);
+    }
+
+    public boolean isFEConstantFunction(CallOperator call) {
+        FunctionSignature signature;
+        if (call.getFunction() != null) {
+            Function fn = call.getFunction();
+            List<Type> argTypes = Arrays.asList(fn.getArgs());
+            signature = new FunctionSignature(fn.functionName().toUpperCase(), argTypes, fn.getReturnType());
+        } else {
+            List<Type> argTypes = call.getArguments().stream().map(ScalarOperator::getType).collect(Collectors.toList());
+            signature = new FunctionSignature(call.getFnName().toUpperCase(), argTypes, call.getType());
+        }
+
+        FunctionInvoker invoker = functions.get(signature);
+        return invoker != null;
+    }
 
     private boolean isMonotonicFunc(FunctionInvoker invoker, CallOperator operator) {
         if (!invoker.isMonotonic) {
             return false;
         }
 
-        if (FunctionSet.DATE_FORMAT.equalsIgnoreCase(invoker.getSignature().getName())) {
+        if ((FunctionSet.DATE_FORMAT.equalsIgnoreCase(invoker.getSignature().getName())
+                || FunctionSet.STR_TO_DATE.equalsIgnoreCase(invoker.getSignature().getName())
+                || FunctionSet.STR2DATE.equalsIgnoreCase(invoker.getSignature().getName())
+                || FunctionSet.FROM_UNIXTIME.equalsIgnoreCase(invoker.getSignature().getName()))
+                && operator.getChildren().size() == 2) {
             String pattern = operator.getChild(1).toString();
             if (pattern.isEmpty()) {
                 return true;
@@ -297,16 +343,12 @@ public enum ScalarOperatorEvaluator {
         }
 
         // Function doesn't support array type
-        public ConstantOperator invoke(List<ScalarOperator> args) throws AnalysisException {
+        public ConstantOperator invoke(List<ScalarOperator> args) throws IllegalAccessException, InvocationTargetException {
             final List<Object> invokeArgs = createInvokeArgs(args);
-            try {
-                return (ConstantOperator) method.invoke(null, invokeArgs.toArray());
-            } catch (InvocationTargetException | IllegalAccessException | IllegalArgumentException e) {
-                throw new AnalysisException(e.getLocalizedMessage(), e);
-            }
+            return (ConstantOperator) method.invoke(null, invokeArgs.toArray());
         }
 
-        private List<Object> createInvokeArgs(List<ScalarOperator> args) throws AnalysisException {
+        private List<Object> createInvokeArgs(List<ScalarOperator> args) {
             final List<Object> invokeArgs = Lists.newArrayList();
             for (int index = 0; index < method.getParameterTypes().length; index++) {
                 final Class<?> argType = method.getParameterTypes()[index];
@@ -324,7 +366,7 @@ public enum ScalarOperatorEvaluator {
 
                     // Array data must keep same kinds
                     if (checkSet.size() > 1) {
-                        throw new AnalysisException("Function's args does't match.");
+                        throw new IllegalArgumentException("Function's args does't match.");
                     }
 
                     ConstantOperator[] argsArray = new ConstantOperator[variableArgs.size()];

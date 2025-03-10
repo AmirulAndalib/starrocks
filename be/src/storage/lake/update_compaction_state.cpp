@@ -33,7 +33,9 @@ CompactionState::~CompactionState() {
 
 Status CompactionState::load_segments(Rowset* rowset, UpdateManager* update_manager,
                                       const TabletSchemaCSPtr& tablet_schema, uint32_t segment_id) {
+    CHECK_MEM_LIMIT("CompactionState::load_segments");
     TRACE_COUNTER_SCOPE_LATENCY_US("load_segments_latency_us");
+    std::lock_guard<std::mutex> lg(_state_lock);
     if (pk_cols.empty() && rowset->num_segments() > 0) {
         pk_cols.resize(rowset->num_segments());
     } else {
@@ -52,8 +54,6 @@ Status CompactionState::load_segments(Rowset* rowset, UpdateManager* update_mana
     return _load_segments(rowset, tablet_schema, segment_id);
 }
 
-static const size_t large_compaction_memory_threshold = 1000000000;
-
 Status CompactionState::_load_segments(Rowset* rowset, const TabletSchemaCSPtr& tablet_schema, uint32_t segment_id) {
     vector<uint32_t> pk_columns;
     for (size_t i = 0; i < tablet_schema->num_key_columns(); i++) {
@@ -62,14 +62,13 @@ Status CompactionState::_load_segments(Rowset* rowset, const TabletSchemaCSPtr& 
 
     Schema pkey_schema = ChunkHelper::convert_schema(tablet_schema, pk_columns);
 
-    std::unique_ptr<Column> pk_column;
-    CHECK(PrimaryKeyEncoder::create_column(pkey_schema, &pk_column, true).ok());
+    MutableColumnPtr pk_column;
+    RETURN_IF_ERROR(PrimaryKeyEncoder::create_column(pkey_schema, &pk_column, true));
 
-    OlapReaderStatistics stats;
     if (_segment_iters.empty()) {
-        ASSIGN_OR_RETURN(_segment_iters, rowset->get_each_segment_iterator(pkey_schema, &stats));
+        ASSIGN_OR_RETURN(_segment_iters, rowset->get_each_segment_iterator(pkey_schema, false, &_stats));
     }
-    CHECK_EQ(_segment_iters.size(), rowset->num_segments());
+    RETURN_ERROR_IF_FALSE(_segment_iters.size() == rowset->num_segments());
 
     // only hold pkey, so can use larger chunk size
     auto chunk_shared_ptr = ChunkHelper::new_chunk(pkey_schema, config::vector_chunk_size);
@@ -90,24 +89,27 @@ Status CompactionState::_load_segments(Rowset* rowset, const TabletSchemaCSPtr& 
             } else if (!st.ok()) {
                 return st;
             } else {
-                PrimaryKeyEncoder::encode(pkey_schema, *chunk, 0, chunk->num_rows(), col.get());
+                TRY_CATCH_BAD_ALLOC(PrimaryKeyEncoder::encode(pkey_schema, *chunk, 0, chunk->num_rows(), col.get()));
             }
         }
         itr->close();
     }
     dest = std::move(col);
+    TRY_CATCH_BAD_ALLOC(dest->raw_data());
     _memory_usage += dest->memory_usage();
     _update_manager->compaction_state_mem_tracker()->consume(dest->memory_usage());
     return Status::OK();
 }
 
 void CompactionState::release_segments(uint32_t segment_id) {
+    std::lock_guard<std::mutex> lg(_state_lock);
     if (segment_id >= pk_cols.size() || pk_cols[segment_id] == nullptr) {
         return;
     }
     _memory_usage -= pk_cols[segment_id]->memory_usage();
     _update_manager->compaction_state_mem_tracker()->release(pk_cols[segment_id]->memory_usage());
-    pk_cols[segment_id]->reset_column();
+    // reset ptr to release memory immediately
+    pk_cols[segment_id].reset();
 }
 
 std::string CompactionState::to_string() const {

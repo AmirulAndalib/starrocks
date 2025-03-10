@@ -19,12 +19,15 @@ import com.starrocks.analysis.BinaryType;
 import com.starrocks.catalog.Column;
 import com.starrocks.catalog.HudiTable;
 import com.starrocks.catalog.IcebergTable;
+import com.starrocks.catalog.OdpsTable;
 import com.starrocks.catalog.Type;
+import com.starrocks.connector.TableVersionRange;
 import com.starrocks.sql.optimizer.OptExpression;
 import com.starrocks.sql.optimizer.OptimizerContext;
 import com.starrocks.sql.optimizer.base.ColumnRefSet;
 import com.starrocks.sql.optimizer.operator.logical.LogicalHudiScanOperator;
 import com.starrocks.sql.optimizer.operator.logical.LogicalIcebergScanOperator;
+import com.starrocks.sql.optimizer.operator.logical.LogicalOdpsScanOperator;
 import com.starrocks.sql.optimizer.operator.scalar.BinaryPredicateOperator;
 import com.starrocks.sql.optimizer.operator.scalar.ColumnRefOperator;
 import com.starrocks.sql.optimizer.operator.scalar.ConstantOperator;
@@ -42,8 +45,9 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 public class PruneHDFSScanColumnRuleTest {
-    private PruneHDFSScanColumnRule icebergRule = PruneHDFSScanColumnRule.ICEBERG_SCAN;
-    private PruneHDFSScanColumnRule hudiRule = PruneHDFSScanColumnRule.HUDI_SCAN;
+    private PruneHDFSScanColumnRule icebergRule = new PruneHDFSScanColumnRule();
+    private PruneHDFSScanColumnRule hudiRule = new PruneHDFSScanColumnRule();
+    private PruneHDFSScanColumnRule odpsRule = new PruneHDFSScanColumnRule();
 
     ColumnRefOperator intColumnOperator = new ColumnRefOperator(1, Type.INT, "id", true);
     ColumnRefOperator strColumnOperator = new ColumnRefOperator(2, Type.STRING, "name", true);
@@ -73,7 +77,7 @@ public class PruneHDFSScanColumnRuleTest {
                         scanColumnMap, Maps.newHashMap(), -1,
                         new BinaryPredicateOperator(BinaryType.EQ,
                                 new ColumnRefOperator(1, Type.INT, "id", true),
-                                ConstantOperator.createInt(1))));
+                                ConstantOperator.createInt(1)), TableVersionRange.empty()));
 
         List<TaskContext> taskContextList = new ArrayList<>();
         taskContextList.add(taskContext);
@@ -90,7 +94,7 @@ public class PruneHDFSScanColumnRuleTest {
                                                  @Mocked TaskContext taskContext) {
         OptExpression scan = new OptExpression(
                 new LogicalIcebergScanOperator(table,
-                        scanColumnMap, Maps.newHashMap(), -1, null));
+                        scanColumnMap, Maps.newHashMap(), -1, null, TableVersionRange.empty()));
 
         List<TaskContext> taskContextList = new ArrayList<>();
         taskContextList.add(taskContext);
@@ -211,7 +215,7 @@ public class PruneHDFSScanColumnRuleTest {
                                                         @Mocked TaskContext taskContext) {
         OptExpression scan = new OptExpression(
                 new LogicalIcebergScanOperator(table,
-                        scanColumnMap, Maps.newHashMap(), -1, null));
+                        scanColumnMap, Maps.newHashMap(), -1, null, TableVersionRange.empty()));
 
         List<TaskContext> taskContextList = new ArrayList<>();
         taskContextList.add(taskContext);
@@ -235,5 +239,85 @@ public class PruneHDFSScanColumnRuleTest {
         List<OptExpression> list = icebergRule.transform(scan, context);
         LogicalIcebergScanOperator op = ((LogicalIcebergScanOperator) list.get(0).getOp());
         Assert.assertEquals(op.getScanOptimzeOption().getCanUseAnyColumn(), false);
+    }
+
+    @Test
+    public void transformOdpsWithPredicate(@Mocked OdpsTable table,
+                                           @Mocked OptimizerContext context,
+                                           @Mocked TaskContext taskContext) {
+        OptExpression scan = new OptExpression(
+                new LogicalOdpsScanOperator(table,
+                        scanColumnMap, Maps.newHashMap(), -1,
+                        new BinaryPredicateOperator(BinaryType.EQ,
+                                new ColumnRefOperator(1, Type.INT, "id", true),
+                                ConstantOperator.createInt(1))));
+
+        List<TaskContext> taskContextList = new ArrayList<>();
+        taskContextList.add(taskContext);
+
+        ColumnRefSet requiredOutputColumns = new ColumnRefSet(new ArrayList<>(
+                Collections.singleton(new ColumnRefOperator(1, Type.INT, "id", true))));
+
+        doOdpsTransform(scan, context, requiredOutputColumns, taskContextList, taskContext);
+    }
+
+    @Test
+    public void transformOdpsWithNoScanColumn(@Mocked OdpsTable table,
+                                              @Mocked OptimizerContext context,
+                                              @Mocked TaskContext taskContext) {
+        OptExpression scan = new OptExpression(
+                new LogicalOdpsScanOperator(table,
+                        scanColumnMap, Maps.newHashMap(), -1, null));
+
+        List<TaskContext> taskContextList = new ArrayList<>();
+        taskContextList.add(taskContext);
+
+        ColumnRefSet requiredOutputColumns = new ColumnRefSet(new ArrayList<>());
+
+        doOdpsTransform(scan, context, requiredOutputColumns, taskContextList, taskContext);
+    }
+
+    @Test
+    public void transformOdpsWithUnknownScanColumn(@Mocked OdpsTable table,
+                                                   @Mocked OptimizerContext context,
+                                                   @Mocked TaskContext taskContext) {
+        OptExpression scan = new OptExpression(
+                new LogicalOdpsScanOperator(table,
+                        scanColumnMapWithUnknown, Maps.newHashMap(), -1, null));
+
+        List<TaskContext> taskContextList = new ArrayList<>();
+        taskContextList.add(taskContext);
+
+        ColumnRefSet requiredOutputColumns = new ColumnRefSet(new ArrayList<>());
+
+        doOdpsTransform(scan, context, requiredOutputColumns, taskContextList, taskContext);
+    }
+
+    private void doOdpsTransform(OptExpression scan,
+                                 OptimizerContext context,
+                                 ColumnRefSet requiredOutputColumns,
+                                 List<TaskContext> taskContextList,
+                                 TaskContext taskContext) {
+        new Expectations() {
+            {
+                context.getTaskContext();
+                minTimes = 0;
+                result = taskContextList;
+
+                taskContext.getRequiredColumns();
+                minTimes = 0;
+                result = requiredOutputColumns;
+
+                context.getSessionVariable().isEnableCountStarOptimization();
+                result = true;
+            }
+        };
+        List<OptExpression> list = odpsRule.transform(scan, context);
+        LogicalOdpsScanOperator scanOperator = (LogicalOdpsScanOperator) list.get(0).getOp();
+        Assert.assertEquals(scanOperator.getScanOptimzeOption().getCanUseAnyColumn(),
+                (requiredOutputColumns.size() == 0));
+        Map<ColumnRefOperator, Column> transferMap = scanOperator.getColRefToColumnMetaMap();
+        Assert.assertEquals(transferMap.size(), 1);
+        Assert.assertEquals(transferMap.get(intColumnOperator).getName(), "id");
     }
 }

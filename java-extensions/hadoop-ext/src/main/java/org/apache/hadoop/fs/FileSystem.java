@@ -593,16 +593,12 @@ public abstract class FileSystem extends Configured
             }
         }
 
-        UserGroupInformation ugi = HadoopExt.getInstance().getHDFSUGI(conf);
-        FileSystem fs = HadoopExt.getInstance().doAs(ugi, () -> {
-            String disableCacheName = String.format("fs.%s.impl.disable.cache", scheme);
-            if (conf.getBoolean(disableCacheName, false)) {
-                LOGGER.debug("Bypassing cache to create filesystem {}", uri);
-                return createFileSystem(uri, conf);
-            }
-            return CACHE.get(uri, conf);
-        });
-        return fs;
+        String disableCacheName = String.format("fs.%s.impl.disable.cache", scheme);
+        if (conf.getBoolean(disableCacheName, false)) {
+            LOGGER.debug("Bypassing cache to create filesystem {}", uri);
+            return createFileSystem(uri, conf);
+        }
+        return CACHE.get(uri, conf);
     }
 
     /**
@@ -3729,9 +3725,8 @@ public abstract class FileSystem extends Configured
      * @return the initialized filesystem.
      * @throws IOException problems loading or initializing the FileSystem
      */
-    private static FileSystem createFileSystem(URI uri, Configuration conf)
+    private static FileSystem createFileSystemInternal(URI uri, Configuration conf)
             throws IOException {
-        HadoopExt.getInstance().rewriteConfiguration(conf);
         LOGGER.info(String.format("%s FileSystem.createFileSystem", HadoopExt.LOGGER_MESSAGE_PREFIX));
         Tracer tracer = FsTracer.get(conf);
         try (TraceScope scope = tracer.newScope("FileSystem#createFileSystem");
@@ -3756,6 +3751,14 @@ public abstract class FileSystem extends Configured
             }
             return fs;
         }
+    }
+
+    private static FileSystem createFileSystem(URI uri, Configuration conf)
+            throws IOException {
+        HadoopExt.getInstance().rewriteConfiguration(conf);
+        UserGroupInformation ugi = HadoopExt.getInstance().getHDFSUGI(conf);
+        FileSystem fs = HadoopExt.getInstance().doAs(ugi, () -> createFileSystemInternal(uri, conf));
+        return fs;
     }
 
     /**
@@ -4103,6 +4106,7 @@ public abstract class FileSystem extends Configured
             private volatile long bytesReadDistanceOfThreeOrFour;
             private volatile long bytesReadDistanceOfFiveOrLarger;
             private volatile long bytesReadErasureCoded;
+            private volatile long remoteReadTimeMS;
 
             /**
              * Add another StatisticsData object to this one.
@@ -4120,6 +4124,7 @@ public abstract class FileSystem extends Configured
                 this.bytesReadDistanceOfFiveOrLarger +=
                         other.bytesReadDistanceOfFiveOrLarger;
                 this.bytesReadErasureCoded += other.bytesReadErasureCoded;
+                this.remoteReadTimeMS += other.remoteReadTimeMS;
             }
 
             /**
@@ -4138,6 +4143,7 @@ public abstract class FileSystem extends Configured
                 this.bytesReadDistanceOfFiveOrLarger =
                         -this.bytesReadDistanceOfFiveOrLarger;
                 this.bytesReadErasureCoded = -this.bytesReadErasureCoded;
+                this.remoteReadTimeMS = -this.remoteReadTimeMS;
             }
 
             @Override
@@ -4186,6 +4192,10 @@ public abstract class FileSystem extends Configured
             public long getBytesReadErasureCoded() {
                 return bytesReadErasureCoded;
             }
+
+            public long getRemoteReadTimeMS() {
+                return remoteReadTimeMS;
+            }
         }
 
         private interface StatisticsAggregator<T> {
@@ -4232,6 +4242,7 @@ public abstract class FileSystem extends Configured
             STATS_DATA_CLEANER.
                     setName(StatisticsDataReferenceCleaner.class.getName());
             STATS_DATA_CLEANER.setDaemon(true);
+            STATS_DATA_CLEANER.setContextClassLoader(null);
             STATS_DATA_CLEANER.start();
         }
 
@@ -4423,6 +4434,14 @@ public abstract class FileSystem extends Configured
         }
 
         /**
+         * Increment the time taken to read bytes from remote in the statistics.
+         * @param durationMS time taken in ms to read bytes from remote
+         */
+        public void increaseRemoteReadTime(final long durationMS) {
+            getThreadStatistics().remoteReadTimeMS += durationMS;
+        }
+
+        /**
          * Apply the given aggregator to all StatisticsData objects associated with
          * this Statistics object.
          * <p>
@@ -4573,6 +4592,25 @@ public abstract class FileSystem extends Configured
                     break;
             }
             return bytesRead;
+        }
+
+        /**
+         * Get total time taken in ms for bytes read from remote.
+         * @return time taken in ms for remote bytes read.
+         */
+        public long getRemoteReadTime() {
+            return visitAll(new StatisticsAggregator<Long>() {
+                private long remoteReadTimeMS = 0;
+
+                @Override
+                public void accept(StatisticsData data) {
+                    remoteReadTimeMS += data.remoteReadTimeMS;
+                }
+
+                public Long aggregate() {
+                    return remoteReadTimeMS;
+                }
+            });
         }
 
         /**
@@ -5103,6 +5141,24 @@ public abstract class FileSystem extends Configured
             }
         }
 
+    }
+
+    /**
+     * Return path of the enclosing root for a given path.
+     * The enclosing root path is a common ancestor that should be used for temp and staging dirs
+     * as well as within encryption zones and other restricted directories.
+     *
+     * Call makeQualified on the param path to ensure its part of the correct filesystem.
+     *
+     * @param path file path to find the enclosing root path for
+     * @return a path to the enclosing root
+     * @throws IOException early checks like failure to resolve path cause IO failures
+     */
+    @InterfaceAudience.Public
+    @InterfaceStability.Unstable
+    public Path getEnclosingRoot(Path path) throws IOException {
+        this.makeQualified(path);
+        return this.makeQualified(new Path("/"));
     }
 
     /**

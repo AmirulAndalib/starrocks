@@ -20,6 +20,7 @@ import com.starrocks.catalog.JDBCTable;
 import com.starrocks.catalog.Table;
 import com.starrocks.catalog.Type;
 import com.starrocks.common.DdlException;
+import com.starrocks.connector.ConnectorMetadatRequestContext;
 import com.starrocks.connector.ConnectorMetadata;
 import com.starrocks.connector.PartitionInfo;
 
@@ -29,6 +30,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+
+import static com.starrocks.catalog.Table.TableType.JDBC;
 
 public class MockedJDBCMetadata implements ConnectorMetadata {
     private final AtomicLong idGen = new AtomicLong(0L);
@@ -49,7 +52,8 @@ public class MockedJDBCMetadata implements ConnectorMetadata {
     private Map<String, JDBCTable> tables = new HashMap<>();
 
     private List<String> partitionNames = Arrays.asList("20230801", "20230802", "20230803", "MAXVALUE");
-    private List<PartitionInfo> partitions = Arrays.asList(new Partition("d", 1690819200L),
+    private List<PartitionInfo> partitions = Arrays.asList(
+            new Partition("d", 1690819200L),
             new Partition("d", 1690819200L),
             new Partition("d", 1690819200L),
             new Partition("d", 1690819200L));
@@ -133,6 +137,11 @@ public class MockedJDBCMetadata implements ConnectorMetadata {
     }
 
     @Override
+    public Table.TableType getTableType() {
+        return JDBC;
+    }
+
+    @Override
     public com.starrocks.catalog.Table getTable(String dbName, String tblName) {
         readLock();
         try {
@@ -153,14 +162,14 @@ public class MockedJDBCMetadata implements ConnectorMetadata {
     }
 
     @Override
-    public List<String> listPartitionNames(String dbName, String tableName) {
+    public List<String> listPartitionNames(String dbName, String tableName, ConnectorMetadatRequestContext requestContext) {
         readLock();
         try {
             if (tableName.equals(MOCKED_PARTITIONED_TABLE_NAME2)) {
-                return Arrays.asList("1234567", "1234568", "1234569");
+                return Arrays.asList("1234567", "1234568", "1234569", "1234570");
             } else if (tableName.equals(MOCKED_PARTITIONED_TABLE_NAME3)
                     || tableName.equals(MOCKED_PARTITIONED_TABLE_NAME5)) {
-                return Arrays.asList("20230801", "20230802", "20230803");
+                return Arrays.asList("20230801", "20230802", "20230803", "20230804");
             } else {
                 return partitionNames;
             }
