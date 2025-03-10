@@ -132,7 +132,7 @@ public:
     //
     // When the inserted entry is no longer needed, the key and
     // value will be passed to "deleter".
-    virtual Handle* insert(const CacheKey& key, void* value, size_t charge,
+    virtual Handle* insert(const CacheKey& key, void* value, size_t value_size, size_t charge,
                            void (*deleter)(const CacheKey& key, void* value),
                            CachePriority priority = CachePriority::NORMAL) = 0;
 
@@ -206,6 +206,7 @@ typedef struct LRUHandle {
     uint32_t refs;
     uint32_t hash; // Hash of key(); used for fast sharding and comparisons
     CachePriority priority = CachePriority::NORMAL;
+    size_t value_size;
     char key_data[1]; // Beginning of key
 
     CacheKey key() const {
@@ -267,7 +268,7 @@ public:
     void set_capacity(size_t capacity);
 
     // Like Cache methods, but with an extra "hash" parameter.
-    Cache::Handle* insert(const CacheKey& key, uint32_t hash, void* value, size_t charge,
+    Cache::Handle* insert(const CacheKey& key, uint32_t hash, void* value, size_t value_size, size_t charge,
                           void (*deleter)(const CacheKey& key, void* value),
                           CachePriority priority = CachePriority::NORMAL);
     Cache::Handle* lookup(const CacheKey& key, uint32_t hash);
@@ -279,6 +280,7 @@ public:
     uint64_t get_hit_count() const;
     size_t get_usage() const;
     size_t get_capacity() const;
+    static size_t key_handle_size(const CacheKey& key) { return sizeof(LRUHandle) - 1 + key.size(); }
 
 private:
     void _lru_remove(LRUHandle* e);
@@ -312,7 +314,8 @@ class ShardedLRUCache : public Cache {
 public:
     explicit ShardedLRUCache(size_t capacity);
     ~ShardedLRUCache() override = default;
-    Handle* insert(const CacheKey& key, void* value, size_t charge, void (*deleter)(const CacheKey& key, void* value),
+    Handle* insert(const CacheKey& key, void* value, size_t value_size, size_t charge,
+                   void (*deleter)(const CacheKey& key, void* value),
                    CachePriority priority = CachePriority::NORMAL) override;
     Handle* lookup(const CacheKey& key) override;
     void release(Handle* handle) override;

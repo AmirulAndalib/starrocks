@@ -34,6 +34,7 @@
 
 package com.starrocks.rpc;
 
+import com.baidu.jprotobuf.pbrpc.utils.TalkTimeoutController;
 import com.google.common.base.Preconditions;
 import com.starrocks.common.Config;
 import com.starrocks.common.profile.Timer;
@@ -49,6 +50,8 @@ import com.starrocks.proto.PGetFileSchemaResult;
 import com.starrocks.proto.PListFailPointResponse;
 import com.starrocks.proto.PMVMaintenanceTaskResult;
 import com.starrocks.proto.PPlanFragmentCancelReason;
+import com.starrocks.proto.PProcessDictionaryCacheRequest;
+import com.starrocks.proto.PProcessDictionaryCacheResult;
 import com.starrocks.proto.PProxyRequest;
 import com.starrocks.proto.PProxyResult;
 import com.starrocks.proto.PPulsarProxyRequest;
@@ -83,6 +86,7 @@ public class BackendServiceClient {
         Tracers.count(Tracers.Module.SCHEDULER, "DeployDataSize", pRequest.serializedRequest.length);
         try (Timer ignored = Tracers.watchScope(Tracers.Module.SCHEDULER, "DeployAsyncSendTime")) {
             final PBackendService service = BrpcProxy.getBackendService(address);
+            TalkTimeoutController.setTalkTimeout(Config.brpc_send_plan_fragment_timeout_ms);
             return service.execPlanFragmentAsync(pRequest);
         } catch (NoSuchElementException e) {
             try {
@@ -295,6 +299,17 @@ public class BackendServiceClient {
             return service.listFailPointAsync(request);
         } catch (Throwable e) {
             LOG.warn("list failpoint exception, address={}:{}", address.getHostname(), address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
+    public Future<PProcessDictionaryCacheResult> processDictionaryCache(
+            TNetworkAddress address, PProcessDictionaryCacheRequest request) throws RpcException {
+        try {
+            final PBackendService service = BrpcProxy.getBackendService(address);
+            return service.processDictionaryCache(request);
+        } catch (Throwable e) {
+            LOG.warn("failed to execute processDictionaryCache, address={}:{}", address.getHostname(), address.getPort(), e);
             throw new RpcException(address.hostname, e.getMessage());
         }
     }

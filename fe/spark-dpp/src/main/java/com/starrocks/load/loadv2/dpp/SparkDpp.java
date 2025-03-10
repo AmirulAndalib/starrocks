@@ -277,7 +277,7 @@ public final class SparkDpp implements java.io.Serializable {
                                     LOG.warn("invalid bucket key:" + curBucketKey);
                                     continue;
                                 }
-                                int partitionId = Integer.parseInt(bucketKey[0]);
+                                long partitionId = Long.parseLong(bucketKey[0]);
                                 int bucketId = Integer.parseInt(bucketKey[1]);
                                 dstPath = String.format(pathPattern, tableId, partitionId, indexMeta.indexId,
                                         bucketId, indexMeta.schemaHash);
@@ -550,7 +550,7 @@ public final class SparkDpp implements java.io.Serializable {
                             long hashValue = DppUtils.getHashValue(row, distributeColumns, dstTableSchema);
                             int bucketId =
                                     (int) ((hashValue & 0xffffffff) % partitionInfo.partitions.get(pid).bucketNum);
-                            long partitionId = partitionInfo.partitions.get(pid).partitionId;
+                            long partitionId = partitionInfo.partitions.get(pid).physicalPartitionId;
                             // bucketKey is partitionId_bucketId
                             String bucketKey = partitionId + "_" + bucketId;
 
@@ -680,17 +680,18 @@ public final class SparkDpp implements java.io.Serializable {
      * then "*" will likely be cast to wrong output according to its field type such as NULL for INT
      * in {@link SparkDpp#convertSrcDataframeToDstDataframe}
      */
-    private Dataset<Row> loadDataFromPath(SparkSession spark,
-                                          EtlJobConfig.EtlFileGroup fileGroup,
-                                          String fileUrl,
-                                          EtlJobConfig.EtlIndex baseIndex) throws SparkDppException {
-        List<String> columnValueFromPath = DppUtils.parseColumnsFromPath(fileUrl, fileGroup.columnsFromPath);
+    private Dataset<Row> loadDataFromPaths(SparkSession spark,
+                                           EtlJobConfig.EtlFileGroup fileGroup,
+                                           List<String> fileUrls,
+                                           List<String> columnValueFromPath,
+                                           EtlJobConfig.EtlIndex baseIndex) throws SparkDppException {
+
         StructType srcSchema = constructSrcSchema(fileGroup, baseIndex);
         Dataset<Row> sourceData = null;
         if (StringUtils.equalsIgnoreCase(fileGroup.fileFormat, "orc")) {
-            sourceData = spark.read().orc(fileUrl);
+            sourceData = spark.read().orc(fileUrls.toArray(new String[] {}));
         } else if (StringUtils.equalsIgnoreCase(fileGroup.fileFormat, "parquet")) {
-            sourceData = spark.read().parquet(fileUrl);
+            sourceData = spark.read().parquet(fileUrls.toArray(new String[] {}));
         }
         if (fileGroup.columnsFromPath != null) {
             for (int i = 0; i < fileGroup.columnsFromPath.size(); i++) {
@@ -704,7 +705,6 @@ public final class SparkDpp implements java.io.Serializable {
             throw new SparkDppException("The schema of file and table must be equal. " +
                     "file schema: " + sourceData.schema().treeString() + ", table schema: " + srcSchema.treeString());
         }
-        scannedRowsAcc.add(sourceData.count());
         // TODO: data quality check for orc/parquet load
         // Check process is roughly the same as the hive load, but there are some bugs to fix.
         // Uncomment below when method checkDataFromHiveWithStrictMode is ready.
@@ -720,19 +720,19 @@ public final class SparkDpp implements java.io.Serializable {
      * then "*" will likely be cast to wrong output according to its field type such as NULL for INT
      * in {@link SparkDpp#convertSrcDataframeToDstDataframe}
      */
-    private Dataset<Row> loadDataFromPath(SparkSession spark,
-                                          EtlJobConfig.EtlFileGroup fileGroup,
-                                          String fileUrl,
-                                          EtlJobConfig.EtlIndex baseIndex,
-                                          List<EtlJobConfig.EtlColumn> columns) throws SparkDppException {
-        List<String> columnValueFromPath = DppUtils.parseColumnsFromPath(fileUrl, fileGroup.columnsFromPath);
+    private Dataset<Row> loadDataFromPaths(SparkSession spark,
+                                           EtlJobConfig.EtlFileGroup fileGroup,
+                                           List<String> fileUrls,
+                                           List<String> columnValueFromPath,
+                                           EtlJobConfig.EtlIndex baseIndex,
+                                           List<EtlJobConfig.EtlColumn> columns) throws SparkDppException {
         // for getting schema to check source data
         Map<String, Integer> dstColumnNameToIndex = new HashMap<String, Integer>();
         for (int i = 0; i < baseIndex.columns.size(); i++) {
             dstColumnNameToIndex.put(baseIndex.columns.get(i).columnName, i);
         }
         StructType srcSchema = constructSrcSchema(fileGroup, baseIndex);
-        JavaRDD<String> sourceDataRdd = spark.read().textFile(fileUrl).toJavaRDD();
+        JavaRDD<String> sourceDataRdd = spark.read().textFile(fileUrls.toArray(new String[] {})).toJavaRDD();
         int columnSize = srcSchema.size() - columnValueFromPath.size();
         List<ColumnParser> parsers = new ArrayList<>();
         for (EtlJobConfig.EtlColumn column : baseIndex.columns) {
@@ -994,20 +994,33 @@ public final class SparkDpp implements java.io.Serializable {
                 if (fileStatuses == null) {
                     throw new SparkDppException("fs list status failed: " + filePath);
                 }
+                Map<List<String>, List<String>> filesGroupByPathColumn = new HashMap<>();
                 for (FileStatus fileStatus : fileStatuses) {
                     if (fileStatus.isDirectory()) {
                         continue;
                     }
                     fileNumberAcc.add(1);
                     fileSizeAcc.add(fileStatus.getLen());
+                    String dataFilePath = fileStatus.getPath().toString();
+                    List<String> columnValuesFromPath = DppUtils.parseColumnsFromPath(dataFilePath, fileGroup.columnsFromPath);
+                    List<String> groupedFilePaths = filesGroupByPathColumn.getOrDefault(columnValuesFromPath, new ArrayList<>());
+                    groupedFilePaths.add(dataFilePath);
+                    filesGroupByPathColumn.put(columnValuesFromPath, groupedFilePaths);
+                }
+
+                for (Map.Entry<List<String>, List<String>> entry : filesGroupByPathColumn.entrySet()) {
+                    List<String> columnValuesFromPath = entry.getKey();
+                    List<String> groupedFilePaths = entry.getValue();
+
                     if (fileGroup.fileFormat != null &&
                             (StringUtils.equalsIgnoreCase(fileGroup.fileFormat, "orc") ||
                                     StringUtils.equalsIgnoreCase(fileGroup.fileFormat, "parquet"))) {
-                        dataframe = loadDataFromPath(spark, fileGroup, fileStatus.getPath().toString(), baseIndex);
+                        dataframe = loadDataFromPaths(spark, fileGroup, groupedFilePaths, columnValuesFromPath, baseIndex);
                     } else {
-                        dataframe = loadDataFromPath(spark, fileGroup, fileStatus.getPath().toString(),
+                        dataframe = loadDataFromPaths(spark, fileGroup, groupedFilePaths, columnValuesFromPath,
                                 baseIndex, baseIndex.columns);
                     }
+
                     dataframe = convertSrcDataframeToDstDataframe(baseIndex, dataframe, dstTableSchema, fileGroup);
                     if (fileGroupDataframe == null) {
                         fileGroupDataframe = dataframe;
@@ -1015,11 +1028,19 @@ public final class SparkDpp implements java.io.Serializable {
                         fileGroupDataframe = fileGroupDataframe.union(dataframe);
                     }
                 }
+
             } catch (Exception e) {
                 LOG.warn("parse path failed:" + filePath);
                 throw e;
             }
         }
+
+        if (fileGroup.fileFormat != null &&
+                (StringUtils.equalsIgnoreCase(fileGroup.fileFormat, "orc") ||
+                        StringUtils.equalsIgnoreCase(fileGroup.fileFormat, "parquet"))) {
+            scannedRowsAcc.add(fileGroupDataframe.count());
+        }
+
         return fileGroupDataframe;
     }
 
@@ -1208,7 +1229,7 @@ public final class SparkDpp implements java.io.Serializable {
                 int reduceNum = 0;
                 for (EtlJobConfig.EtlPartition partition : partitionInfo.partitions) {
                     for (int i = 0; i < partition.bucketNum; i++) {
-                        bucketKeyMap.put(partition.partitionId + "_" + i, reduceNum);
+                        bucketKeyMap.put(partition.physicalPartitionId + "_" + i, reduceNum);
                         reduceNum++;
                     }
                 }
@@ -1245,7 +1266,7 @@ public final class SparkDpp implements java.io.Serializable {
                     int partitionSize = partitionInfo.partitions.size();
                     for (int i = 0; i < partitionSize; ++i) {
                         EtlJobConfig.EtlPartition partition = partitionInfo.partitions.get(i);
-                        if (fileGroup.partitions.contains(partition.partitionId)) {
+                        if (fileGroup.partitions.contains(partition.physicalPartitionId)) {
                             fileGroupPartitions.add(partition);
                             if (!partitionRangeKeys.isEmpty()) {
                                 fileGroupPartitionRangeKeys.add(partitionRangeKeys.get(i));

@@ -74,6 +74,9 @@ Status LakeMetaReader::_build_collect_context(const lake::VersionedTablet& table
         // get column id
         _collect_context.seg_collecter_params.cids.emplace_back(index);
 
+        // low cardinality threshold
+        _collect_context.seg_collecter_params.low_cardinality_threshold = read_params.low_card_threshold;
+
         // get result slot id
         _collect_context.result_slot_ids.emplace_back(it.first);
 
@@ -105,9 +108,9 @@ Status LakeMetaReader::_init_seg_meta_collecters(const lake::VersionedTablet& ta
 }
 
 Status LakeMetaReader::_get_segments(const lake::VersionedTablet& tablet, std::vector<SegmentSharedPtr>* segments) {
-    ASSIGN_OR_RETURN(auto rowsets, tablet.get_rowsets());
+    auto rowsets = tablet.get_rowsets();
     for (const auto& rowset : rowsets) {
-        ASSIGN_OR_RETURN(auto rowset_segs, rowset->segments(false));
+        ASSIGN_OR_RETURN(auto rowset_segs, rowset->segments(true));
         segments->insert(segments->end(), rowset_segs.begin(), rowset_segs.end());
     }
     return Status::OK();

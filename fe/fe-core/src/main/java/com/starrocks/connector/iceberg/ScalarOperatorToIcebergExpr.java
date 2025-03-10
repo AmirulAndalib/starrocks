@@ -46,6 +46,7 @@ import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -131,10 +132,17 @@ public class ScalarOperatorToIcebergExpr {
         }
 
         private static Type getColumnType(String qualifiedName, IcebergContext context) {
-            String[] paths = qualifiedName.split("\\.");
-            Type type = context.getSchema();
-            for (String path : paths) {
-                type = type.asStructType().fieldType(path);
+            Types.StructType structType = context.getSchema().asStructType();
+            Type type = structType.fieldType(qualifiedName);
+            if (null != type) {
+                return type;
+            }
+            if (qualifiedName.contains(".")) {
+                type = context.getSchema();
+                String[] paths = qualifiedName.split("\\.");
+                for (String path : paths) {
+                    type = type.asStructType().fieldType(path);
+                }
             }
             return type;
         }
@@ -318,43 +326,48 @@ public class ScalarOperatorToIcebergExpr {
         }
 
         private ConstantOperator tryCastToResultType(ConstantOperator operator, Type.TypeID resultTypeID) {
-            try {
-                switch (resultTypeID) {
-                    case BOOLEAN:
-                        return operator.castTo(com.starrocks.catalog.Type.BOOLEAN);
-                    case DATE:
-                        return operator.castTo(com.starrocks.catalog.Type.DATE);
-                    case TIMESTAMP:
-                        return operator.castTo(com.starrocks.catalog.Type.DATETIME);
-                    case STRING:
-                    case UUID:
-                        // num and string has different comparator
-                        if (operator.getType().isNumericType()) {
-                            return null;
-                        }
-                        return operator.castTo(com.starrocks.catalog.Type.VARCHAR);
-                    case BINARY:
-                        return operator.castTo(com.starrocks.catalog.Type.VARBINARY);
+
+            Optional<ConstantOperator> res = Optional.empty();
+            switch (resultTypeID) {
+                case BOOLEAN:
+                    res = operator.castTo(com.starrocks.catalog.Type.BOOLEAN);
+                    break;
+                case DATE:
+                    res = operator.castTo(com.starrocks.catalog.Type.DATE);
+                    break;
+                case TIMESTAMP:
+                    res = operator.castTo(com.starrocks.catalog.Type.DATETIME);
+                    break;
+                case STRING:
+                case UUID:
+                    // num and string has different comparator
+                    if (operator.getType().isNumericType()) {
+                        return null;
+                    } else {
+                        res = operator.castTo(com.starrocks.catalog.Type.VARCHAR);
+                    }
+                    break;
+                case BINARY:
+                    res = operator.castTo(com.starrocks.catalog.Type.VARBINARY);
+                    break;
                     // num usually don't need cast, and num and string has different comparator
                     // cast is dangerous.
-                    case INTEGER:
-                    case LONG:
+                case INTEGER:
+                case LONG:
                     // usually not used as partition column, don't do much work
-                    case DECIMAL:
-                    case FLOAT:
-                    case DOUBLE:
-                    case STRUCT:
-                    case LIST:
-                    case MAP:
+                case DECIMAL:
+                case FLOAT:
+                case DOUBLE:
+                case STRUCT:
+                case LIST:
+                case MAP:
                     // not supported
-                    case FIXED:
-                    case TIME:
-                        return null;
-                }
-            } catch (Exception e) {
-                return null;
+                case FIXED:
+                case TIME:
+                    return null;
             }
-            return operator;
+
+            return res.orElse(null);
         }
 
         @Override
@@ -432,14 +445,17 @@ public class ScalarOperatorToIcebergExpr {
             return null;
         }
 
+        @Override
         public String visitVariableReference(ColumnRefOperator operator, Void context) {
             return operator.getName();
         }
 
+        @Override
         public String visitCastOperator(CastOperator operator, Void context) {
             return operator.getChild(0).accept(this, context);
         }
 
+        @Override
         public String visitSubfield(SubfieldOperator operator, Void context) {
             ScalarOperator child = operator.getChild(0);
             if (!(child instanceof ColumnRefOperator)) {
