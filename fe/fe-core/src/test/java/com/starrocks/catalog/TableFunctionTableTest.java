@@ -15,7 +15,6 @@
 package com.starrocks.catalog;
 
 import com.google.common.collect.Lists;
-import com.starrocks.analysis.BrokerDesc;
 import com.starrocks.common.DdlException;
 import com.starrocks.common.ExceptionChecker;
 import com.starrocks.common.StarRocksException;
@@ -27,6 +26,7 @@ import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.server.RunMode;
 import com.starrocks.sql.analyzer.AstToSQLBuilder;
 import com.starrocks.sql.analyzer.SemanticException;
+import com.starrocks.sql.ast.BrokerDesc;
 import com.starrocks.sql.ast.StatementBase;
 import com.starrocks.sql.parser.SqlParser;
 import com.starrocks.system.Backend;
@@ -113,11 +113,11 @@ public class TableFunctionTableTest {
 
         TableFunctionTable t = new TableFunctionTable(newProperties());
 
-        Method method = TableFunctionTable.class.getDeclaredMethod("getFileSchema", null);
+        Method method = TableFunctionTable.class.getDeclaredMethod("getFileSchema", (Class<?>[]) null);
         method.setAccessible(true);
 
         try {
-            method.invoke(t, null);
+            method.invoke(t, (Object[]) null);
         } catch (Exception e) {
             Assertions.assertTrue(e.getCause().getMessage().contains("Failed to send proxy request. No alive backends"));
         }
@@ -130,7 +130,7 @@ public class TableFunctionTableTest {
         };
 
         try {
-            method.invoke(t, null);
+            method.invoke(t, (Object[]) null);
         } catch (Exception e) {
             Assertions.assertTrue(e.getCause().getMessage().
                     contains("Failed to send proxy request. No alive backends or compute nodes"));
@@ -159,7 +159,7 @@ public class TableFunctionTableTest {
         };
 
         try {
-            method.invoke(t, null);
+            method.invoke(t, (Object[]) null);
         } catch (Exception e) {
             Assertions.assertFalse(false);
         }

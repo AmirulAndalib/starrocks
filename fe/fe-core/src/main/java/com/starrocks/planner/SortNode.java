@@ -38,19 +38,11 @@ import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import com.starrocks.analysis.Analyzer;
-import com.starrocks.analysis.DescriptorTable;
-import com.starrocks.analysis.Expr;
-import com.starrocks.analysis.ExprSubstitutionMap;
-import com.starrocks.analysis.SlotDescriptor;
-import com.starrocks.analysis.SlotId;
-import com.starrocks.analysis.SlotRef;
-import com.starrocks.analysis.SortInfo;
 import com.starrocks.common.IdGenerator;
-import com.starrocks.common.StarRocksException;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.qe.SessionVariable;
 import com.starrocks.server.GlobalStateMgr;
+import com.starrocks.sql.ast.expression.Expr;
 import com.starrocks.sql.optimizer.operator.TopNType;
 import com.starrocks.thrift.TExplainLevel;
 import com.starrocks.thrift.TLateMaterializeMode;
@@ -151,7 +143,7 @@ public class SortNode extends PlanNode implements RuntimeFilterBuildNode {
     }
 
     @Override
-    protected void computeStats(Analyzer analyzer) {
+    protected void computeStats() {
     }
 
     @Override
@@ -300,9 +292,9 @@ public class SortNode extends PlanNode implements RuntimeFilterBuildNode {
                 output.append(", ");
             }
             if (detailLevel.equals(TExplainLevel.NORMAL)) {
-                output.append(partitionExpr.next().toSql()).append(" ");
+                output.append(explainExpr(partitionExpr.next())).append(" ");
             } else {
-                output.append(partitionExpr.next().explain()).append(" ");
+                output.append(explainExpr(TExplainLevel.VERBOSE, List.of(partitionExpr.next()))).append(" ");
             }
         }
         if (!start) {
@@ -320,9 +312,9 @@ public class SortNode extends PlanNode implements RuntimeFilterBuildNode {
                 output.append(", ");
             }
             if (detailLevel.equals(TExplainLevel.NORMAL)) {
-                output.append(orderExpr.next().toSql()).append(" ");
+                output.append(explainExpr(orderExpr.next())).append(" ");
             } else {
-                output.append(orderExpr.next().explain()).append(" ");
+                output.append(explainExpr(TExplainLevel.VERBOSE, List.of(orderExpr.next()))).append(" ");
             }
             output.append(isAsc.next() ? "ASC" : "DESC");
         }
@@ -373,50 +365,6 @@ public class SortNode extends PlanNode implements RuntimeFilterBuildNode {
         }
         output.append(detailPrefix).append("offset: ").append(offset).append("\n");
         return output.toString();
-    }
-
-    public void init(Analyzer analyzer) throws StarRocksException {
-        // Compute the memory layout for the generated tuple.
-        computeStats(analyzer);
-        // createDefaultSmap(analyzer);
-        // // populate resolvedTupleExprs and outputSmap_
-        // List<SlotDescriptor> sortTupleSlots = info.getSortTupleDescriptor().getSlots();
-        // List<Expr> slotExprs = info.getSortTupleSlotExprs_();
-        // Preconditions.checkState(sortTupleSlots.size() == slotExprs.size());
-
-        // populate resolvedTupleExprs_ and outputSmap_
-        List<SlotDescriptor> sortTupleSlots = info.getSortTupleDescriptor().getSlots();
-        List<Expr> slotExprs = info.getSortTupleSlotExprs();
-        Preconditions.checkState(sortTupleSlots.size() == slotExprs.size());
-
-        resolvedTupleExprs = Lists.newArrayList();
-        outputSmap = new ExprSubstitutionMap();
-
-        for (int i = 0; i < slotExprs.size(); ++i) {
-            if (!sortTupleSlots.get(i).isMaterialized()) {
-                continue;
-            }
-            resolvedTupleExprs.add(slotExprs.get(i));
-            outputSmap.put(slotExprs.get(i), new SlotRef(sortTupleSlots.get(i)));
-        }
-
-        ExprSubstitutionMap childSmap = getCombinedChildSmap();
-        resolvedTupleExprs = Expr.substituteList(resolvedTupleExprs, childSmap, analyzer, false);
-
-        // Remap the ordering exprs to the tuple materialized by this sort node. The mapping
-        // is a composition of the childSmap and the outputSmap_ because the child node may
-        // have also remapped its input (e.g., as in a a series of (sort->analytic)* nodes).
-        // Parent nodes have have to do the same so set the composition as the outputSmap_.
-        outputSmap = ExprSubstitutionMap.compose(childSmap, outputSmap, analyzer);
-        info.substituteOrderingExprs(outputSmap, analyzer);
-
-        hasNullableGenerateChild = checkHasNullableGenerateChild();
-
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("sort id " + tupleIds.get(0).toString() + " smap: "
-                    + outputSmap.debugString());
-            LOG.debug("sort input exprs: " + Expr.debugString(resolvedTupleExprs));
-        }
     }
 
     @Override

@@ -211,7 +211,7 @@ StarRocks supports querying Iceberg views from v3.3.2 onwards. Currently, only I
 | Feature                | Supported Version(s) | Note                                                         |
 | :--------------------- | :------------------- | :----------------------------------------------------------- |
 | CREATE DATABASE        | v3.1+                | You can choose to specify the location for a database created in Iceberg or not. If you do not specify the location for the database, you will need to specify the location for the tables created under the database. Otherwise, an error will be returned. If you have specified the location for the database, tables without the location specified will inherit the location of the database. And if you have specified locations for both the database and the table, the table's location will take effect eventually. |
-| CREATE TABLE           | v3.1+                | For both partitioned and non-partitioned tables.             |
+| CREATE TABLE | v3.1+ | Supports partitioned and non-partitioned tables. Starting from v4.0, supports creating tables with hidden partitions. |
 | CREATE TABLE AS SELECT | v3.1+                |                                                              |
 | INSERT INTO/OVERWRITE  | v3.1+                | For both partitioned and non-partitioned tables.             |
 
@@ -235,6 +235,11 @@ StarRocks supports querying Iceberg views from v3.3.2 onwards. Currently, only I
 - StarRocks supports querying the Parquet-formatted data in Delta Lake, and supports SNAPPY, LZ4, ZSTD, GZIP, and NO_COMPRESSION compression formats for Parquet files.
 - StarRocks does not support querying the MAP-type and STRUCT-type data in Delta Lake.
 - StarRocks supports SHOW CREATE TABLE to view Delta Lake table schema from v3.0.0 onwards.
+- Currently, Delta Lake catalogs support the following table features:
+  - V2 Checkpoint (From v3.3.0 onwards)
+  - Timestamp without Timezone (From v3.3.1 onwards)
+  - Column mapping (From v3.3.6 onwards)
+  - Deletion Vector (From v3.4.1 onwards)
 
 ## JDBC Catalog
 

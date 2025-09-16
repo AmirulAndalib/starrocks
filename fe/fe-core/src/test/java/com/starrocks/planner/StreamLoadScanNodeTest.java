@@ -35,12 +35,6 @@
 package com.starrocks.planner;
 
 import com.google.common.collect.Lists;
-import com.starrocks.analysis.Analyzer;
-import com.starrocks.analysis.DescriptorTable;
-import com.starrocks.analysis.FunctionCallExpr;
-import com.starrocks.analysis.FunctionName;
-import com.starrocks.analysis.SlotDescriptor;
-import com.starrocks.analysis.TupleDescriptor;
 import com.starrocks.catalog.AggregateType;
 import com.starrocks.catalog.Column;
 import com.starrocks.catalog.Function;
@@ -59,6 +53,8 @@ import com.starrocks.load.streamload.StreamLoadInfo;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.sql.ast.ImportColumnDesc;
+import com.starrocks.sql.ast.expression.FunctionCallExpr;
+import com.starrocks.sql.ast.expression.FunctionName;
 import com.starrocks.sql.parser.AstBuilder;
 import com.starrocks.sql.parser.ParsingException;
 import com.starrocks.sql.parser.SqlParser;
@@ -189,8 +185,8 @@ public class StreamLoadScanNodeTest {
 
     @Test
     public void testNormal() throws StarRocksException {
-        Analyzer analyzer = new Analyzer(globalStateMgr, connectContext);
-        DescriptorTable descTbl = analyzer.getDescTbl();
+        
+        DescriptorTable descTbl = new DescriptorTable();
 
         List<Column> columns = getBaseSchema();
         TupleDescriptor dstDesc = descTbl.createTupleDescriptor("DstTableDesc");
@@ -221,8 +217,8 @@ public class StreamLoadScanNodeTest {
             dstTable.getColumn("v2");
             result = columns.get(3);
         }};
-        scanNode.init(analyzer);
-        scanNode.finalizeStats(analyzer);
+        scanNode.init(descTbl);
+        scanNode.finalizeStats();
         scanNode.getNodeExplainString("", TExplainLevel.NORMAL);
         TPlanNode planNode = new TPlanNode();
         scanNode.toThrift(planNode);
@@ -232,8 +228,8 @@ public class StreamLoadScanNodeTest {
     @Test
     public void testLostV2() {
         assertThrows(AnalysisException.class, () -> {
-            Analyzer analyzer = new Analyzer(globalStateMgr, connectContext);
-            DescriptorTable descTbl = analyzer.getDescTbl();
+            
+            DescriptorTable descTbl = new DescriptorTable();
 
             List<Column> columns = getBaseSchema();
             TupleDescriptor dstDesc = descTbl.createTupleDescriptor("DstTableDesc");
@@ -253,8 +249,8 @@ public class StreamLoadScanNodeTest {
             StreamLoadInfo streamLoadInfo = StreamLoadInfo.fromTStreamLoadPutRequest(request, null);
             StreamLoadScanNode scanNode = getStreamLoadScanNode(dstDesc, request);
 
-            scanNode.init(analyzer);
-            scanNode.finalizeStats(analyzer);
+            scanNode.init(descTbl);
+            scanNode.finalizeStats();
             scanNode.getNodeExplainString("", TExplainLevel.NORMAL);
             TPlanNode planNode = new TPlanNode();
             scanNode.toThrift(planNode);
@@ -264,8 +260,8 @@ public class StreamLoadScanNodeTest {
     @Test
     public void testBadColumns(@Mocked GlobalStateMgr globalStateMgr) {
         assertThrows(ParsingException.class, () -> {
-            Analyzer analyzer = new Analyzer(globalStateMgr, connectContext);
-            DescriptorTable descTbl = analyzer.getDescTbl();
+            
+            DescriptorTable descTbl = new DescriptorTable();
 
             List<Column> columns = getBaseSchema();
             TupleDescriptor dstDesc = descTbl.createTupleDescriptor("DstTableDesc");
@@ -285,8 +281,8 @@ public class StreamLoadScanNodeTest {
             StreamLoadInfo streamLoadInfo = StreamLoadInfo.fromTStreamLoadPutRequest(request, null);
             StreamLoadScanNode scanNode = getStreamLoadScanNode(dstDesc, request);
 
-            scanNode.init(analyzer);
-            scanNode.finalizeStats(analyzer);
+            scanNode.init(descTbl);
+            scanNode.finalizeStats();
             scanNode.getNodeExplainString("", TExplainLevel.NORMAL);
             TPlanNode planNode = new TPlanNode();
             scanNode.toThrift(planNode);
@@ -295,8 +291,8 @@ public class StreamLoadScanNodeTest {
 
     @Test
     public void testColumnsNormal() throws StarRocksException, StarRocksException {
-        Analyzer analyzer = new Analyzer(globalStateMgr, connectContext);
-        DescriptorTable descTbl = analyzer.getDescTbl();
+        
+        DescriptorTable descTbl = new DescriptorTable();
 
         List<Column> columns = getBaseSchema();
         TupleDescriptor dstDesc = descTbl.createTupleDescriptor("DstTableDesc");
@@ -331,8 +327,8 @@ public class StreamLoadScanNodeTest {
         request.setColumns("k1,k2,v1, v2=k2");
         StreamLoadInfo streamLoadInfo = StreamLoadInfo.fromTStreamLoadPutRequest(request, null);
         StreamLoadScanNode scanNode = getStreamLoadScanNode(dstDesc, request);
-        scanNode.init(analyzer);
-        scanNode.finalizeStats(analyzer);
+        scanNode.init(descTbl);
+        scanNode.finalizeStats();
         scanNode.getNodeExplainString("", TExplainLevel.NORMAL);
         TPlanNode planNode = new TPlanNode();
         scanNode.toThrift(planNode);
@@ -340,8 +336,8 @@ public class StreamLoadScanNodeTest {
 
     @Test
     public void testSetColumnOfDecimal() {
-        Analyzer analyzer = new Analyzer(globalStateMgr, connectContext);
-        DescriptorTable descTbl = analyzer.getDescTbl();
+        
+        DescriptorTable descTbl = new DescriptorTable();
         List<Column> columns = getDecimalSchema();
 
         TupleDescriptor dstDesc = descTbl.createTupleDescriptor("DstTableDesc");
@@ -366,8 +362,8 @@ public class StreamLoadScanNodeTest {
 
     @Test
     public void testHllColumnsNormal() throws StarRocksException {
-        Analyzer analyzer = new Analyzer(globalStateMgr, connectContext);
-        DescriptorTable descTbl = analyzer.getDescTbl();
+        
+        DescriptorTable descTbl = new DescriptorTable();
 
         List<Column> columns = getHllSchema();
         TupleDescriptor dstDesc = descTbl.createTupleDescriptor("DstTableDesc");
@@ -407,8 +403,8 @@ public class StreamLoadScanNodeTest {
         StreamLoadInfo streamLoadInfo = StreamLoadInfo.fromTStreamLoadPutRequest(request, null);
         StreamLoadScanNode scanNode = getStreamLoadScanNode(dstDesc, request);
 
-        scanNode.init(analyzer);
-        scanNode.finalizeStats(analyzer);
+        scanNode.init(descTbl);
+        scanNode.finalizeStats();
         scanNode.getNodeExplainString("", TExplainLevel.NORMAL);
         TPlanNode planNode = new TPlanNode();
         scanNode.toThrift(planNode);
@@ -417,8 +413,8 @@ public class StreamLoadScanNodeTest {
     @Test
     public void testHllColumnsNoHllHash() {
         assertThrows(StarRocksException.class, () -> {
-            Analyzer analyzer = new Analyzer(globalStateMgr, connectContext);
-            DescriptorTable descTbl = analyzer.getDescTbl();
+            
+            DescriptorTable descTbl = new DescriptorTable();
 
             List<Column> columns = getHllSchema();
             TupleDescriptor dstDesc = descTbl.createTupleDescriptor("DstTableDesc");
@@ -463,8 +459,8 @@ public class StreamLoadScanNodeTest {
             StreamLoadInfo streamLoadInfo = StreamLoadInfo.fromTStreamLoadPutRequest(request, null);
             StreamLoadScanNode scanNode = getStreamLoadScanNode(dstDesc, request);
 
-            scanNode.init(analyzer);
-            scanNode.finalizeStats(analyzer);
+            scanNode.init(descTbl);
+            scanNode.finalizeStats();
             scanNode.getNodeExplainString("", TExplainLevel.NORMAL);
             TPlanNode planNode = new TPlanNode();
             scanNode.toThrift(planNode);
@@ -474,8 +470,8 @@ public class StreamLoadScanNodeTest {
     @Test
     public void testHllColumnsFail() {
         assertThrows(StarRocksException.class, () -> {
-            Analyzer analyzer = new Analyzer(globalStateMgr, connectContext);
-            DescriptorTable descTbl = analyzer.getDescTbl();
+            
+            DescriptorTable descTbl = new DescriptorTable();
 
             List<Column> columns = getHllSchema();
             TupleDescriptor dstDesc = descTbl.createTupleDescriptor("DstTableDesc");
@@ -495,8 +491,8 @@ public class StreamLoadScanNodeTest {
             request.setColumns("k1,k2, v1=k2");
             StreamLoadScanNode scanNode = getStreamLoadScanNode(dstDesc, request);
 
-            scanNode.init(analyzer);
-            scanNode.finalizeStats(analyzer);
+            scanNode.init(descTbl);
+            scanNode.finalizeStats();
             scanNode.getNodeExplainString("", TExplainLevel.NORMAL);
             TPlanNode planNode = new TPlanNode();
             scanNode.toThrift(planNode);
@@ -506,8 +502,8 @@ public class StreamLoadScanNodeTest {
     @Test
     public void testUnsupportedFType() {
         assertThrows(StarRocksException.class, () -> {
-            Analyzer analyzer = new Analyzer(globalStateMgr, connectContext);
-            DescriptorTable descTbl = analyzer.getDescTbl();
+            
+            DescriptorTable descTbl = new DescriptorTable();
 
             List<Column> columns = getBaseSchema();
             TupleDescriptor dstDesc = descTbl.createTupleDescriptor("DstTableDesc");
@@ -527,8 +523,8 @@ public class StreamLoadScanNodeTest {
             request.setColumns("k1,k2,v1, v2=k2");
             StreamLoadScanNode scanNode = getStreamLoadScanNode(dstDesc, request);
 
-            scanNode.init(analyzer);
-            scanNode.finalizeStats(analyzer);
+            scanNode.init(descTbl);
+            scanNode.finalizeStats();
             scanNode.getNodeExplainString("", TExplainLevel.NORMAL);
             TPlanNode planNode = new TPlanNode();
             scanNode.toThrift(planNode);
@@ -538,8 +534,8 @@ public class StreamLoadScanNodeTest {
     @Test
     public void testColumnsUnknownRef() {
         assertThrows(StarRocksException.class, () -> {
-            Analyzer analyzer = new Analyzer(globalStateMgr, connectContext);
-            DescriptorTable descTbl = analyzer.getDescTbl();
+            
+            DescriptorTable descTbl = new DescriptorTable();
 
             List<Column> columns = getBaseSchema();
             TupleDescriptor dstDesc = descTbl.createTupleDescriptor("DstTableDesc");
@@ -578,8 +574,8 @@ public class StreamLoadScanNodeTest {
             request.setColumns("k1,k2,v1, v2=k3");
             StreamLoadScanNode scanNode = getStreamLoadScanNode(dstDesc, request);
 
-            scanNode.init(analyzer);
-            scanNode.finalizeStats(analyzer);
+            scanNode.init(descTbl);
+            scanNode.finalizeStats();
             scanNode.getNodeExplainString("", TExplainLevel.NORMAL);
             TPlanNode planNode = new TPlanNode();
             scanNode.toThrift(planNode);
@@ -588,8 +584,8 @@ public class StreamLoadScanNodeTest {
 
     @Test
     public void testWhereNormal() throws StarRocksException, StarRocksException {
-        Analyzer analyzer = new Analyzer(globalStateMgr, connectContext);
-        DescriptorTable descTbl = analyzer.getDescTbl();
+        
+        DescriptorTable descTbl = new DescriptorTable();
 
         List<Column> columns = getBaseSchema();
         TupleDescriptor dstDesc = descTbl.createTupleDescriptor("DstTableDesc");
@@ -629,8 +625,8 @@ public class StreamLoadScanNodeTest {
         request.setWhere("k1 = 1");
         StreamLoadScanNode scanNode = getStreamLoadScanNode(dstDesc, request);
 
-        scanNode.init(analyzer);
-        scanNode.finalizeStats(analyzer);
+        scanNode.init(descTbl);
+        scanNode.finalizeStats();
         scanNode.getNodeExplainString("", TExplainLevel.NORMAL);
         TPlanNode planNode = new TPlanNode();
         scanNode.toThrift(planNode);
@@ -639,8 +635,8 @@ public class StreamLoadScanNodeTest {
     @Test
     public void testWhereBad() {
         assertThrows(ParsingException.class, () -> {
-            Analyzer analyzer = new Analyzer(globalStateMgr, connectContext);
-            DescriptorTable descTbl = analyzer.getDescTbl();
+            
+            DescriptorTable descTbl = new DescriptorTable();
 
             List<Column> columns = getBaseSchema();
             TupleDescriptor dstDesc = descTbl.createTupleDescriptor("DstTableDesc");
@@ -683,8 +679,8 @@ public class StreamLoadScanNodeTest {
                     new StreamLoadScanNode(streamLoadInfo.getId(), new PlanNodeId(1), dstDesc, dstTable,
                             streamLoadInfo);
 
-            scanNode.init(analyzer);
-            scanNode.finalizeStats(analyzer);
+            scanNode.init(descTbl);
+            scanNode.finalizeStats();
             scanNode.getNodeExplainString("", TExplainLevel.NORMAL);
             TPlanNode planNode = new TPlanNode();
             scanNode.toThrift(planNode);
@@ -694,8 +690,8 @@ public class StreamLoadScanNodeTest {
     @Test
     public void testWhereUnknownRef() {
         assertThrows(StarRocksException.class, () -> {
-            Analyzer analyzer = new Analyzer(globalStateMgr, connectContext);
-            DescriptorTable descTbl = analyzer.getDescTbl();
+            
+            DescriptorTable descTbl = new DescriptorTable();
 
             List<Column> columns = getBaseSchema();
             TupleDescriptor dstDesc = descTbl.createTupleDescriptor("DstTableDesc");
@@ -735,8 +731,8 @@ public class StreamLoadScanNodeTest {
             request.setWhere("k5 = 1");
             StreamLoadScanNode scanNode = getStreamLoadScanNode(dstDesc, request);
 
-            scanNode.init(analyzer);
-            scanNode.finalizeStats(analyzer);
+            scanNode.init(descTbl);
+            scanNode.finalizeStats();
             scanNode.getNodeExplainString("", TExplainLevel.NORMAL);
             TPlanNode planNode = new TPlanNode();
             scanNode.toThrift(planNode);
@@ -746,8 +742,8 @@ public class StreamLoadScanNodeTest {
     @Test
     public void testWhereNotBool() {
         assertThrows(StarRocksException.class, () -> {
-            Analyzer analyzer = new Analyzer(globalStateMgr, connectContext);
-            DescriptorTable descTbl = analyzer.getDescTbl();
+            
+            DescriptorTable descTbl = new DescriptorTable();
 
             List<Column> columns = getBaseSchema();
             TupleDescriptor dstDesc = descTbl.createTupleDescriptor("DstTableDesc");
@@ -792,8 +788,8 @@ public class StreamLoadScanNodeTest {
                 }
             };
 
-            scanNode.init(analyzer);
-            scanNode.finalizeStats(analyzer);
+            scanNode.init(descTbl);
+            scanNode.finalizeStats();
             scanNode.getNodeExplainString("", TExplainLevel.NORMAL);
             TPlanNode planNode = new TPlanNode();
             scanNode.toThrift(planNode);

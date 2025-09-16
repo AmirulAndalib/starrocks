@@ -17,6 +17,7 @@ package com.starrocks.service;
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.gson.Gson;
+import com.starrocks.authentication.UserIdentityUtils;
 import com.starrocks.authorization.AccessDeniedException;
 import com.starrocks.authorization.AuthorizationMgr;
 import com.starrocks.authorization.PrivilegeException;
@@ -36,6 +37,7 @@ import com.starrocks.catalog.PartitionInfo;
 import com.starrocks.catalog.PhysicalPartition;
 import com.starrocks.catalog.Table;
 import com.starrocks.catalog.Table.TableType;
+import com.starrocks.catalog.UserIdentity;
 import com.starrocks.cluster.ClusterNamespace;
 import com.starrocks.common.CaseSensibility;
 import com.starrocks.common.Config;
@@ -47,14 +49,12 @@ import com.starrocks.lake.DataCacheInfo;
 import com.starrocks.lake.compaction.PartitionIdentifier;
 import com.starrocks.lake.compaction.PartitionStatistics;
 import com.starrocks.lake.compaction.Quantiles;
-import com.starrocks.monitor.unit.ByteSizeValue;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.server.MetadataMgr;
 import com.starrocks.server.TemporaryTableMgr;
 import com.starrocks.sql.analyzer.Authorizer;
 import com.starrocks.sql.analyzer.SemanticException;
-import com.starrocks.sql.ast.UserIdentity;
 import com.starrocks.thrift.TApplicableRolesInfo;
 import com.starrocks.thrift.TAuthInfo;
 import com.starrocks.thrift.TGetApplicableRolesRequest;
@@ -118,7 +118,7 @@ public class InformationSchemaDataSource {
 
         UserIdentity currentUser;
         if (authInfo.isSetCurrent_user_ident()) {
-            currentUser = UserIdentity.fromThrift(authInfo.current_user_ident);
+            currentUser = UserIdentityUtils.fromThrift(authInfo.current_user_ident);
         } else {
             currentUser = UserIdentity.createAnalyzedUserIdentWithIp(authInfo.user, authInfo.user_ip);
         }
@@ -455,8 +455,10 @@ public class InformationSchemaDataSource {
         // REPLICATION_NUM
         partitionMetaInfo.setReplication_num(partitionInfo.getReplicationNum(partition.getId()));
         // DATA_SIZE
-        ByteSizeValue byteSizeValue = new ByteSizeValue(physicalPartition.storageDataSize());
-        partitionMetaInfo.setData_size(byteSizeValue.toString());
+        // DATA_SIZE in PARTITIONS_META is string before, and bigint is more programmer-friendly and change it to bigint
+        // We do not change the field type in `TPartitionMetaInfo` for compatibility and BE will finished the type 
+        // convertion.
+        partitionMetaInfo.setData_size(String.valueOf(physicalPartition.storageDataSize()));
         DataProperty dataProperty = partitionInfo.getDataProperty(partition.getId());
         // STORAGE_MEDIUM
         partitionMetaInfo.setStorage_medium(dataProperty.getStorageMedium().name());
@@ -489,9 +491,11 @@ public class InformationSchemaDataSource {
             partitionMetaInfo.setMax_cs(compactionScore != null ? compactionScore.getMax() : 0.0);
             // STORAGE_PATH
             partitionMetaInfo.setStorage_path(
-                    table.getPartitionFilePathInfo(physicalPartition.getId()).getFullPath());
+                    table.getPartitionFilePathInfo(physicalPartition.getPathId()).getFullPath());
             // METADATA_SWITCH_VERSION
             partitionMetaInfo.setMetadata_switch_version(physicalPartition.getMetadataSwitchVersion());
+            // PATH_ID
+            partitionMetaInfo.setPath_id(physicalPartition.getPathId());
         }
 
         partitionMetaInfo.setData_version(physicalPartition.getDataVersion());
@@ -499,6 +503,8 @@ public class InformationSchemaDataSource {
         partitionMetaInfo.setVersion_txn_type(physicalPartition.getVersionTxnType().toThrift());
         // STORAGE_SIZE
         partitionMetaInfo.setStorage_size(physicalPartition.storageDataSize() + physicalPartition.getExtraFileSize());
+        // TABLET_BALANCED
+        partitionMetaInfo.setTablet_balanced(physicalPartition.isTabletBalanced());
     }
 
     // tables

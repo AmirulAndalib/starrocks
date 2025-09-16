@@ -39,7 +39,6 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
-import com.starrocks.analysis.VariableExpr;
 import com.starrocks.catalog.Type;
 import com.starrocks.common.DdlException;
 import com.starrocks.common.ErrorCode;
@@ -56,6 +55,7 @@ import com.starrocks.persist.metablock.SRMetaBlockWriter;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.sql.ast.SetType;
 import com.starrocks.sql.ast.SystemVariable;
+import com.starrocks.sql.ast.expression.VariableExpr;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.text.similarity.JaroWinklerDistance;
 import org.apache.logging.log4j.LogManager;
@@ -320,21 +320,30 @@ public class VariableMgr {
         }
 
         if (!onlySetSessionVar && setVar.getType() == SetType.GLOBAL) {
-            wLock.lock();
-            try {
-                setValue(ctx.getObj(), ctx.getField(), value);
-                // write edit log
-                GlobalVarPersistInfo info =
-                        new GlobalVarPersistInfo(defaultSessionVariable, Lists.newArrayList(attr.name()));
-                EditLog editLog = GlobalStateMgr.getCurrentState().getEditLog();
-                editLog.logGlobalVariableV2(info);
-            } finally {
-                wLock.unlock();
-            }
+            setGlobalVariableAndWriteEditLog(ctx, attr.name(), value);
         }
 
         // set session variable
         setValue(sessionVariable, ctx.getField(), value);
+    }
+
+    private void setGlobalVariableAndWriteEditLog(VarContext ctx, String name, String value) throws DdlException {
+        wLock.lock();
+        try {
+            setValue(ctx.getObj(), ctx.getField(), value);
+            // write edit log
+            GlobalVarPersistInfo info =
+                    new GlobalVarPersistInfo(defaultSessionVariable, Lists.newArrayList(name));
+            EditLog editLog = GlobalStateMgr.getCurrentState().getEditLog();
+            editLog.logGlobalVariableV2(info);
+        } finally {
+            wLock.unlock();
+        }
+    }
+
+    public void setCaseInsensitive(boolean caseInsensitive) throws DdlException {
+        VarContext ctx = getVarContext(GlobalVariable.ENABLE_TABLE_NAME_CASE_INSENSITIVE);
+        setGlobalVariableAndWriteEditLog(ctx, GlobalVariable.ENABLE_TABLE_NAME_CASE_INSENSITIVE, String.valueOf(caseInsensitive));
     }
 
     public void save(ImageWriter imageWriter) throws IOException, SRMetaBlockException {
@@ -365,9 +374,12 @@ public class VariableMgr {
             for (Field field : GlobalVariable.class.getDeclaredFields()) {
                 field.setAccessible(true);
                 VarAttr attr = field.getAnnotation(VarAttr.class);
-                if (attr == null || (attr.flag() & GLOBAL) != GLOBAL) {
+                if (attr == null ||
+                        ((attr.flag() & GLOBAL) != GLOBAL &&
+                                !attr.name().equalsIgnoreCase(GlobalVariable.ENABLE_TABLE_NAME_CASE_INSENSITIVE))) {
                     continue;
                 }
+
                 switch (field.getType().getSimpleName()) {
                     case "boolean":
                     case "int":

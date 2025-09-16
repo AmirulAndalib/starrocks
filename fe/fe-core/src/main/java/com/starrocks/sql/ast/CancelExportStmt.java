@@ -15,10 +15,12 @@
 
 package com.starrocks.sql.ast;
 
-import com.starrocks.analysis.Expr;
+import com.starrocks.sql.ast.expression.Expr;
 import com.starrocks.sql.parser.NodePosition;
 
 import java.util.UUID;
+
+import static com.starrocks.common.util.Util.normalizeName;
 
 /**
  * syntax:
@@ -31,7 +33,7 @@ public class CancelExportStmt extends DdlStmt {
     private UUID queryId;
 
     public void setDbName(String dbName) {
-        this.dbName = dbName;
+        this.dbName = normalizeName(dbName);
     }
 
     public void setQueryId(UUID queryId) {
@@ -56,13 +58,13 @@ public class CancelExportStmt extends DdlStmt {
 
     public CancelExportStmt(String dbName, Expr whereClause, NodePosition pos) {
         super(pos);
-        this.dbName = dbName;
+        this.dbName = normalizeName(dbName);
         this.whereClause = whereClause;
     }
 
     @Override
     public <R, C> R accept(AstVisitor<R, C> visitor, C context) {
-        return visitor.visitCancelExportStatement(this, context);
+        return ((AstVisitorExtendInterface<R, C>) visitor).visitCancelExportStatement(this, context);
     }
 }
 

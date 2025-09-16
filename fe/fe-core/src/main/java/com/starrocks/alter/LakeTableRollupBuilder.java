@@ -98,13 +98,13 @@ public class LakeTableRollupBuilder extends AlterJobV2Builder {
                         .collect(Collectors.toList());
                 List<Long> shadowTabletIds = GlobalStateMgr.getCurrentState().getStarOSAgent().createShards(
                         originTablets.size(),
-                        olapTable.getPartitionFilePathInfo(physicalPartitionId),
+                        olapTable.getPartitionFilePathInfo(physicalPartition.getPathId()),
                         olapTable.getPartitionFileCacheInfo(physicalPartitionId),
                         shardGroupId, originTableIds, shardProperties, computeResource);
                 Preconditions.checkState(originTablets.size() == shadowTabletIds.size());
 
                 TabletMeta shadowTabletMeta =
-                        new TabletMeta(dbId, olapTable.getId(), physicalPartitionId, rollupIndexId, 0, medium, true);
+                        new TabletMeta(dbId, olapTable.getId(), physicalPartitionId, rollupIndexId, medium, true);
                 Map<Long, Long> tabletIdMap = new HashMap<>();
                 for (int i = 0; i < originTablets.size(); i++) {
                     Tablet originTablet = originTablets.get(i);

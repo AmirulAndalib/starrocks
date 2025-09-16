@@ -35,9 +35,6 @@
 package com.starrocks.planner;
 
 import com.google.common.collect.Lists;
-import com.starrocks.analysis.Analyzer;
-import com.starrocks.analysis.CompoundPredicate;
-import com.starrocks.analysis.Expr;
 import com.starrocks.catalog.Column;
 import com.starrocks.catalog.Database;
 import com.starrocks.catalog.KeysType;
@@ -51,6 +48,8 @@ import com.starrocks.load.routineload.RoutineLoadJob;
 import com.starrocks.load.streamload.StreamLoadInfo;
 import com.starrocks.load.streamload.StreamLoadKvParams;
 import com.starrocks.sql.ast.ImportColumnsStmt;
+import com.starrocks.sql.ast.expression.CompoundPredicate;
+import com.starrocks.sql.ast.expression.Expr;
 import com.starrocks.thrift.TCompressionType;
 import com.starrocks.thrift.TFileFormatType;
 import com.starrocks.thrift.TFileType;
@@ -107,8 +106,6 @@ public class StreamLoadPlannerTest {
                 destTable.getPartitions();
                 minTimes = 0;
                 result = Arrays.asList(partition);
-                scanNode.init((Analyzer) any);
-                minTimes = 0;
                 scanNode.getChildren();
                 minTimes = 0;
                 result = Lists.newArrayList();
@@ -151,8 +148,6 @@ public class StreamLoadPlannerTest {
                 destTable.getPartitions();
                 minTimes = 0;
                 result = Arrays.asList(partition);
-                scanNode.init((Analyzer) any);
-                minTimes = 0;
                 scanNode.getChildren();
                 minTimes = 0;
                 result = Lists.newArrayList();

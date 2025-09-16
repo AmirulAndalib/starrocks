@@ -15,7 +15,6 @@
 package com.starrocks.catalog;
 
 import com.google.common.collect.Sets;
-import com.starrocks.analysis.LiteralExpr;
 import com.starrocks.common.AnalysisException;
 import com.starrocks.common.DdlException;
 import com.starrocks.common.ErrorCode;
@@ -32,6 +31,7 @@ import com.starrocks.sql.ast.PartitionDesc;
 import com.starrocks.sql.ast.RangePartitionDesc;
 import com.starrocks.sql.ast.SingleItemListPartitionDesc;
 import com.starrocks.sql.ast.SingleRangePartitionDesc;
+import com.starrocks.sql.ast.expression.LiteralExpr;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -88,11 +88,24 @@ public class CatalogUtils {
                 if (partitionDesc.isSetIfNotExists()) {
                     existPartitionNameSet.add(partitionName);
                 } else {
+                    // add more information for user
+                    Partition existedPartition = olapTable.getPartition(partitionName);
+                    LOG.warn("Duplicate partition name {}, existed partition:{}, current partition:{}", partitionName,
+                            existedPartition, partitionDesc);
                     ErrorReport.reportDdlException(ErrorCode.ERR_SAME_NAME_PARTITION, partitionName);
                 }
             }
         }
         return existPartitionNameSet;
+    }
+
+    public static boolean checkIfNewPartitionExists(OlapTable olapTable, Set<String> creatingPartitionNames) {
+        for (String creatingPartitionName : creatingPartitionNames) {
+            if (!olapTable.checkPartitionNameExist(creatingPartitionName)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public static Set<String> getPartitionNamesFromAddPartitionClause(AddPartitionClause addPartitionClause) {

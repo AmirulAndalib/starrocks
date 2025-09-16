@@ -21,9 +21,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
-import com.starrocks.analysis.DescriptorTable;
-import com.starrocks.analysis.SlotDescriptor;
-import com.starrocks.analysis.TupleDescriptor;
 import com.starrocks.catalog.AggregateType;
 import com.starrocks.catalog.Column;
 import com.starrocks.catalog.ColumnId;
@@ -267,7 +264,7 @@ public class OlapTableSinkTest {
 
         // Index
         MaterializedIndex index = new MaterializedIndex(indexId, MaterializedIndex.IndexState.NORMAL);
-        TabletMeta tabletMeta = new TabletMeta(dbId, tableId, physicalPartitionId, indexId, 0, TStorageMedium.SSD);
+        TabletMeta tabletMeta = new TabletMeta(dbId, tableId, physicalPartitionId, indexId, TStorageMedium.SSD);
         index.addTablet(tablet, tabletMeta);
 
         // Partition
@@ -365,7 +362,7 @@ public class OlapTableSinkTest {
             tablet.addReplica(replica3);
 
             // Index
-            TabletMeta tabletMeta = new TabletMeta(dbId, tableId, physicalPartitionId, indexId, 0, TStorageMedium.SSD);
+            TabletMeta tabletMeta = new TabletMeta(dbId, tableId, physicalPartitionId, indexId, TStorageMedium.SSD);
             index.addTablet(tablet, tabletMeta);
         }
 
@@ -719,7 +716,7 @@ public class OlapTableSinkTest {
         partitionInfo.setReplicationNum(partitionId, (short) 3);
         // Index
         MaterializedIndex index = new MaterializedIndex(indexId, MaterializedIndex.IndexState.NORMAL);
-        TabletMeta tabletMeta = new TabletMeta(dbId, tableId, physicalPartitionId, indexId, 0, TStorageMedium.SSD);
+        TabletMeta tabletMeta = new TabletMeta(dbId, tableId, physicalPartitionId, indexId, TStorageMedium.SSD);
         index.addTablet(tablet, tabletMeta);
         // Partition
         Partition partition = new Partition(partitionId, physicalPartitionId, "p1", index, distributionInfo);

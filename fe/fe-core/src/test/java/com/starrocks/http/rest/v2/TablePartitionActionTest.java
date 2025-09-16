@@ -22,7 +22,6 @@ import com.staros.proto.FileStoreInfo;
 import com.staros.proto.FileStoreType;
 import com.staros.proto.S3FileStoreInfo;
 import com.staros.proto.ShardInfo;
-import com.starrocks.analysis.StringLiteral;
 import com.starrocks.catalog.Column;
 import com.starrocks.catalog.ColumnId;
 import com.starrocks.catalog.DataProperty;
@@ -57,6 +56,7 @@ import com.starrocks.persist.gson.GsonUtils;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.sql.ast.ColumnDef;
 import com.starrocks.sql.ast.PartitionValue;
+import com.starrocks.sql.ast.expression.StringLiteral;
 import com.starrocks.thrift.TStorageMedium;
 import com.starrocks.warehouse.cngroup.ComputeResource;
 import mockit.Expectations;
@@ -188,7 +188,7 @@ public class TablePartitionActionTest extends StarRocksHttpTestCase {
         // index
         MaterializedIndex baseIndex = new MaterializedIndex(testIndexId, MaterializedIndex.IndexState.NORMAL);
         TabletMeta tabletMeta = new TabletMeta(
-                testDbId, RANGE_PARTITION_TABLE_ID, BASE_PARTITION_ID, testIndexId, testSchemaHash, TStorageMedium.HDD, true);
+                testDbId, RANGE_PARTITION_TABLE_ID, BASE_PARTITION_ID, testIndexId, TStorageMedium.HDD, true);
         baseIndex.addTablet(tablet, tabletMeta);
 
         FilePathInfo.Builder builder = FilePathInfo.newBuilder();
@@ -357,7 +357,7 @@ public class TablePartitionActionTest extends StarRocksHttpTestCase {
         // index
         MaterializedIndex baseIndex = new MaterializedIndex(testIndexId, MaterializedIndex.IndexState.NORMAL);
         TabletMeta tabletMeta = new TabletMeta(
-                testDbId, LIST_PARTITION_TABLE_ID, BASE_PARTITION_ID, testIndexId, testSchemaHash, TStorageMedium.HDD);
+                testDbId, LIST_PARTITION_TABLE_ID, BASE_PARTITION_ID, testIndexId, TStorageMedium.HDD);
         baseIndex.addTablet(tablet, tabletMeta);
 
         tablet.addReplica(new Replica(

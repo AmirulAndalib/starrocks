@@ -16,7 +16,6 @@ package com.starrocks.statistic;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.starrocks.analysis.TableName;
 import com.starrocks.catalog.Database;
 import com.starrocks.catalog.OlapTable;
 import com.starrocks.catalog.Partition;
@@ -28,6 +27,7 @@ import com.starrocks.connector.statistics.ConnectorTableColumnStats;
 import com.starrocks.monitor.unit.ByteSizeUnit;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.server.GlobalStateMgr;
+import com.starrocks.sql.ast.expression.TableName;
 import com.starrocks.sql.common.ErrorType;
 import com.starrocks.sql.common.StarRocksPlannerException;
 import com.starrocks.statistic.columns.ColumnUsage;
@@ -419,6 +419,16 @@ public class StatisticsCollectJobFactory {
 
     private static void createJob(List<StatisticsCollectJob> allTableJobMap, NativeAnalyzeJob job,
                                   Database db, Table table, List<String> columnNames, List<Type> columnTypes) {
+        // catch exceptions because it may fail to query the predicate_columns
+        try {
+            createJobImpl(allTableJobMap, job, db, table, columnNames, columnTypes);
+        } catch (Throwable e) {
+            LOG.warn("create statistics job failed db={} table={} columns={}", db, table, columnNames, e);
+        }
+    }
+
+    private static void createJobImpl(List<StatisticsCollectJob> allTableJobMap, NativeAnalyzeJob job,
+                                      Database db, Table table, List<String> columnNames, List<Type> columnTypes) {
         if (table == null || !table.isNativeTableOrMaterializedView()) {
             return;
         }
@@ -480,7 +490,7 @@ public class StatisticsCollectJobFactory {
             List<ColumnUsage> predicateColumns = PredicateColumnsMgr.getInstance().queryPredicateColumns(tableName);
             if (CollectionUtils.isNotEmpty(predicateColumns) && predicateColumns.size() <= numColumns) {
                 OlapTable olap = (OlapTable) table;
-                predicateColNames = predicateColumns.stream().map(x -> x.getOlapColumnName(olap)).toList();
+                predicateColNames = predicateColumns.stream().flatMap(x -> x.getOlapColumnName(olap).stream()).toList();
                 existsPredicateColumns = true;
                 if (numColumns > Config.statistic_auto_collect_predicate_columns_threshold) {
                     enablePredicateColumnStrategy = true;

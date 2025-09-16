@@ -22,17 +22,18 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
-import com.starrocks.analysis.OrderByElement;
-import com.starrocks.analysis.ParseNode;
 import com.starrocks.catalog.MaterializedView;
 import com.starrocks.catalog.MvPlanContext;
 import com.starrocks.common.Config;
 import com.starrocks.qe.SessionVariable;
 import com.starrocks.scheduler.mv.MVTimelinessMgr;
 import com.starrocks.server.GlobalStateMgr;
-import com.starrocks.sql.analyzer.AstToSQLBuilder;
+import com.starrocks.sql.ast.OrderByElement;
+import com.starrocks.sql.ast.ParseNode;
 import com.starrocks.sql.ast.QueryRelation;
 import com.starrocks.sql.ast.QueryStatement;
+import com.starrocks.sql.formatter.AST2SQLVisitor;
+import com.starrocks.sql.formatter.FormatOptions;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -96,7 +97,7 @@ public class CachingMvPlanContextBuilder {
          * Create a AstKey with parseNode(sub parse node)
          */
         public AstKey(ParseNode parseNode) {
-            this.sql = new AstToSQLBuilder.AST2SQLBuilderVisitor(true, false, true).visit(parseNode);
+            this.sql = AST2SQLVisitor.withOptions(FormatOptions.allEnable().setEnableDigest(false)).visit(parseNode);
         }
 
         @Override
@@ -226,29 +227,19 @@ public class CachingMvPlanContextBuilder {
     }
 
     /**
-     * Update the cache of mv plan context which includes mv plan cache and mv ast cache.
-     */
-    public void updateMvPlanContextCache(MaterializedView mv, boolean isActive) {
-        try {
-            // invalidate caches first
-            evictMaterializedViewCache(mv);
-
-            // if transfer to active, put it into cache
-            if (isActive) {
-                cacheMaterializedView(mv);
-            }
-        } catch (Throwable e) {
-            LOG.warn("invalidate mv plan caches failed, mv:{}", mv.getName(), e);
-        }
-    }
-
-    /**
      * Cache materialized view, this will put the mv into ast cache and load plan context asynchronously.
      * @param mv: the materialized view to cache.
      */
     public void cacheMaterializedView(MaterializedView mv) {
-        putAstIfAbsent(mv);
-        loadPlanContextAsync(mv);
+        // evict mv from cache first
+        evictMaterializedViewCache(mv);
+        // then put mv into ast cache and load plan context
+        try {
+            putAstIfAbsent(mv);
+            loadPlanContextAsync(mv);
+        } catch (Exception e) {
+            LOG.warn("cacheMaterializedView failed: {}", mv.getName(), e);
+        }
     }
 
     /**
@@ -311,7 +302,7 @@ public class CachingMvPlanContextBuilder {
     /**
      * This method is used to put mv into ast cache, this will be only called in the first time.
      */
-    public void putAstIfAbsent(MaterializedView mv) {
+    private void putAstIfAbsent(MaterializedView mv) {
         if (!Config.enable_materialized_view_text_based_rewrite || mv == null || !mv.isEnableRewrite()) {
             return;
         }

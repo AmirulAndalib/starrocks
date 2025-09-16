@@ -45,8 +45,6 @@ import com.starrocks.alter.MaterializedViewHandler;
 import com.starrocks.alter.SchemaChangeHandler;
 import com.starrocks.alter.SystemHandler;
 import com.starrocks.alter.dynamictablet.DynamicTabletJobMgr;
-import com.starrocks.analysis.LiteralExpr;
-import com.starrocks.analysis.TableName;
 import com.starrocks.authentication.AuthenticationMgr;
 import com.starrocks.authentication.JwkMgr;
 import com.starrocks.authorization.AccessControlProvider;
@@ -136,13 +134,13 @@ import com.starrocks.journal.JournalInconsistentException;
 import com.starrocks.journal.JournalTask;
 import com.starrocks.journal.JournalWriter;
 import com.starrocks.journal.bdbje.Timestamp;
-import com.starrocks.lake.ShardManager;
 import com.starrocks.lake.StarMgrMetaSyncer;
 import com.starrocks.lake.StarOSAgent;
 import com.starrocks.lake.compaction.CompactionControlScheduler;
 import com.starrocks.lake.compaction.CompactionMgr;
 import com.starrocks.lake.snapshot.ClusterSnapshotMgr;
 import com.starrocks.lake.vacuum.AutovacuumDaemon;
+import com.starrocks.lake.vacuum.FullVacuumDaemon;
 import com.starrocks.leader.CheckpointController;
 import com.starrocks.leader.ReportHandler;
 import com.starrocks.leader.TabletCollector;
@@ -189,6 +187,7 @@ import com.starrocks.plugin.PluginMgr;
 import com.starrocks.qe.AuditEventProcessor;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.qe.DDLStmtExecutor;
+import com.starrocks.qe.GlobalVariable;
 import com.starrocks.qe.JournalObservable;
 import com.starrocks.qe.QueryStatisticsInfo;
 import com.starrocks.qe.SessionVariable;
@@ -215,6 +214,8 @@ import com.starrocks.sql.analyzer.AuthorizerStmtVisitor;
 import com.starrocks.sql.ast.RefreshTableStmt;
 import com.starrocks.sql.ast.SetType;
 import com.starrocks.sql.ast.SystemVariable;
+import com.starrocks.sql.ast.expression.LiteralExpr;
+import com.starrocks.sql.ast.expression.TableName;
 import com.starrocks.sql.optimizer.statistics.CachedStatisticStorage;
 import com.starrocks.sql.optimizer.statistics.StatisticStorage;
 import com.starrocks.sql.parser.AstBuilder;
@@ -456,9 +457,6 @@ public class GlobalStateMgr {
     private LocalMetastore localMetastore;
     private final GlobalFunctionMgr globalFunctionMgr;
 
-    @Deprecated
-    private final ShardManager shardManager;
-
     private final StateChangeExecution execution;
 
     private TaskRunStateSynchronizer taskRunStateSynchronizer;
@@ -480,6 +478,7 @@ public class GlobalStateMgr {
     private final StorageVolumeMgr storageVolumeMgr;
 
     private AutovacuumDaemon autovacuumDaemon;
+    private FullVacuumDaemon fullVacuumDaemon;
 
     private final PipeManager pipeManager;
     private final PipeListener pipeListener;
@@ -763,7 +762,6 @@ public class GlobalStateMgr {
 
         this.taskManager = new TaskManager();
         this.insertOverwriteJobMgr = new InsertOverwriteJobMgr();
-        this.shardManager = new ShardManager();
         this.compactionMgr = new CompactionMgr();
         this.compactionControlScheduler = new CompactionControlScheduler();
         this.configRefreshDaemon = new ConfigRefreshDaemon();
@@ -780,6 +778,7 @@ public class GlobalStateMgr {
             this.storageVolumeMgr = new SharedDataStorageVolumeMgr();
             this.autovacuumDaemon = new AutovacuumDaemon();
             this.slotManager = new SlotManager(resourceUsageMonitor);
+            this.fullVacuumDaemon = new FullVacuumDaemon();
         } else {
             this.storageVolumeMgr = new SharedNothingStorageVolumeMgr();
             this.slotManager = new SlotManager(resourceUsageMonitor);
@@ -1235,6 +1234,7 @@ public class GlobalStateMgr {
     // wait until FE is ready.
     public void waitForReady() throws InterruptedException {
         long lastLoggingTimeMs = System.currentTimeMillis();
+        long lastInfoLogTimeMs = System.currentTimeMillis();
         while (true) {
             if (isReady()) {
                 LOG.info("globalStateMgr is ready. FE type: {}", feType);
@@ -1242,8 +1242,13 @@ public class GlobalStateMgr {
                 break;
             }
 
-            Thread.sleep(2000);
-            LOG.info("wait globalStateMgr to be ready. FE type: {}. is ready: {}", feType, isReady.get());
+            Thread.sleep(20);
+
+            long currentTimeMs = System.currentTimeMillis();
+            if (currentTimeMs - lastInfoLogTimeMs > 2000L) {
+                lastInfoLogTimeMs = currentTimeMs;
+                LOG.info("wait globalStateMgr to be ready. FE type: {}. is ready: {}", feType, isReady.get());
+            }
 
             if (System.currentTimeMillis() - lastLoggingTimeMs > 60000L) {
                 lastLoggingTimeMs = System.currentTimeMillis();
@@ -1316,6 +1321,10 @@ public class GlobalStateMgr {
                 nodeMgr.resetFrontends();
             }
 
+            if (nodeMgr.isFirstTimeStartUp()) {
+                initCaseInsensitive();
+            }
+
             // MUST set leader ip before starting checkpoint thread.
             // because checkpoint thread need this info to select non-leader FE to push image
             nodeMgr.setLeaderInfo();
@@ -1348,6 +1357,7 @@ public class GlobalStateMgr {
                                 LiteralExpr.create("true", Type.BOOLEAN)),
                         false);
             }
+            checkCaseInsensitive();
         } catch (StarRocksException e) {
             LOG.warn("Failed to set ENABLE_ADAPTIVE_SINK_DOP", e);
         } catch (Throwable t) {
@@ -1449,6 +1459,7 @@ public class GlobalStateMgr {
 
             starMgrMetaSyncer.start();
             autovacuumDaemon.start();
+            fullVacuumDaemon.start();
         }
 
         if (Config.enable_safe_mode) {
@@ -1695,6 +1706,11 @@ public class GlobalStateMgr {
         for (Database db : localMetastore.getIdToDb().values()) {
             for (Table table : db.getTables()) {
                 try {
+                    // Skip MaterializedView, which are processed in processMvRelatedMeta()
+                    if (table.isMaterializedView()) {
+                        continue;
+                    }
+
                     table.onReload();
 
                     if (table.isTemporaryTable()) {
@@ -2219,6 +2235,10 @@ public class GlobalStateMgr {
         return this.backupHandler;
     }
 
+    public PublishVersionDaemon getPublishVersionDaemon() {
+        return this.publishVersionDaemon;
+    }
+
     public DeleteMgr getDeleteMgr() {
         return deleteMgr;
     }
@@ -2722,6 +2742,48 @@ public class GlobalStateMgr {
         } catch (PrivilegeException e) {
             LOG.warn("Failed to grant builtin storage volume usage to public role", e);
         }
+    }
+
+    /**
+     * Initialize the global case-insensitive setting during cluster first startup.
+     *
+     * This method is called ONLY during the initial cluster initialization to set
+     * the global variable {@code GlobalVariable.enable_table_name_case_insensitive} from
+     * {@link Config#enable_table_name_case_insensitive}.
+     *
+     * Once set, this value becomes immutable for the entire cluster lifecycle.
+     * Any failure during initialization will cause the system to exit.
+     */
+    private void initCaseInsensitive() {
+        try {
+            GlobalStateMgr.getCurrentState().getVariableMgr().setCaseInsensitive(Config.enable_table_name_case_insensitive);
+        } catch (Exception e) {
+            LOG.error("Initialization of case-insensitive failed.", e);
+            System.exit(-1);
+        }
+        LOG.info("Finish initializing case-insensitive, value is {}", GlobalVariable.enableTableNameCaseInsensitive);
+    }
+
+    /**
+     * Validate that the configuration value matches the initially recorded value.
+     *
+     * This method ensures that {@link Config#enable_table_name_case_insensitive} has not been
+     * modified since the cluster's initial setup. It compares the current config
+     * value against the immutable {@code GlobalVariable.enableCaseInsensitive}
+     * that was set during first initialization.
+     *
+     * If values don't match, the leader node will fail to start to prevent
+     * potential data inconsistencies from case sensitivity changes.
+     */
+    private void checkCaseInsensitive() {
+        if (Config.enable_table_name_case_insensitive != GlobalVariable.enableTableNameCaseInsensitive) {
+            LOG.error("The configuration of \'enable_table_name_case_insensitive\' does not support modification, "
+                            + "the expected value is {}, but the actual value is {}",
+                    GlobalVariable.enableTableNameCaseInsensitive,
+                    Config.enable_table_name_case_insensitive);
+            System.exit(-1);
+        }
+        LOG.info("enable_table_name_case_insensitive is {}", GlobalVariable.enableTableNameCaseInsensitive);
     }
 
     public BaseSlotManager getSlotManager() {

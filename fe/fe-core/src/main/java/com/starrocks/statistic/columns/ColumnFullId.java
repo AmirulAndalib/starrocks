@@ -15,7 +15,6 @@
 package com.starrocks.statistic.columns;
 
 import com.google.gson.annotations.SerializedName;
-import com.starrocks.analysis.TableName;
 import com.starrocks.catalog.Column;
 import com.starrocks.catalog.ColumnId;
 import com.starrocks.catalog.Database;
@@ -23,6 +22,7 @@ import com.starrocks.catalog.Table;
 import com.starrocks.common.Pair;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.server.LocalMetastore;
+import com.starrocks.sql.ast.expression.TableName;
 
 import java.util.Objects;
 import java.util.Optional;
@@ -61,7 +61,7 @@ public class ColumnFullId {
         Optional<Database> database = meta.mayGetDb(dbId);
         Optional<Table> table = meta.mayGetTable(dbId, tableId);
         Optional<Column> column = table.flatMap(x -> Optional.ofNullable(x.getColumnByUniqueId(columnUniqueId)));
-        if (database.isEmpty() || table.isEmpty()) {
+        if (database.isEmpty() || table.isEmpty() || column.isEmpty()) {
             return Optional.empty();
         }
         return Optional.of(Pair.create(new TableName(database.get().getOriginName(), table.get().getName()),
@@ -83,6 +83,16 @@ public class ColumnFullId {
     @Override
     public int hashCode() {
         return Objects.hash(dbId, tableId, columnUniqueId);
+    }
+
+    @Override
+    public String toString() {
+        final StringBuffer sb = new StringBuffer("ColumnFullId{");
+        sb.append("dbId=").append(dbId);
+        sb.append(", tableId=").append(tableId);
+        sb.append(", columnUniqueId=").append(columnUniqueId);
+        sb.append('}');
+        return sb.toString();
     }
 
     public long getDbId() {

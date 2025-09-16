@@ -38,17 +38,6 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.starrocks.analysis.Analyzer;
-import com.starrocks.analysis.ArithmeticExpr;
-import com.starrocks.analysis.BrokerDesc;
-import com.starrocks.analysis.Expr;
-import com.starrocks.analysis.FunctionCallExpr;
-import com.starrocks.analysis.IntLiteral;
-import com.starrocks.analysis.NullLiteral;
-import com.starrocks.analysis.SlotDescriptor;
-import com.starrocks.analysis.SlotRef;
-import com.starrocks.analysis.StringLiteral;
-import com.starrocks.analysis.TupleDescriptor;
 import com.starrocks.catalog.AggregateType;
 import com.starrocks.catalog.BrokerTable;
 import com.starrocks.catalog.Column;
@@ -66,13 +55,22 @@ import com.starrocks.common.ErrorReport;
 import com.starrocks.common.Pair;
 import com.starrocks.common.StarRocksException;
 import com.starrocks.common.util.BrokerUtil;
+import com.starrocks.common.util.TimeUtils;
 import com.starrocks.fs.FileSystem;
 import com.starrocks.fs.HdfsUtil;
 import com.starrocks.load.BrokerFileGroup;
 import com.starrocks.load.Load;
 import com.starrocks.load.loadv2.LoadJob;
 import com.starrocks.server.GlobalStateMgr;
+import com.starrocks.sql.ast.BrokerDesc;
 import com.starrocks.sql.ast.ImportColumnDesc;
+import com.starrocks.sql.ast.expression.ArithmeticExpr;
+import com.starrocks.sql.ast.expression.Expr;
+import com.starrocks.sql.ast.expression.FunctionCallExpr;
+import com.starrocks.sql.ast.expression.IntLiteral;
+import com.starrocks.sql.ast.expression.NullLiteral;
+import com.starrocks.sql.ast.expression.SlotRef;
+import com.starrocks.sql.ast.expression.StringLiteral;
 import com.starrocks.system.ComputeNode;
 import com.starrocks.thrift.TBrokerFileStatus;
 import com.starrocks.thrift.TBrokerRangeDesc;
@@ -154,8 +152,6 @@ public class FileScanNode extends LoadScanNode {
     private List<ComputeNode> nodes;
     private int nextBe = 0;
 
-    private Analyzer analyzer;
-
     // Use vectorized load for improving load performance
     // 1. now for orcfile only
     // 2. remove cast string, and transform data from orig datatype directly
@@ -173,6 +169,8 @@ public class FileScanNode extends LoadScanNode {
     private TFileScanType fileScanType = TFileScanType.LOAD;
 
     private boolean nullExprInAutoIncrement;
+
+    private DescriptorTable descriptorTable;
 
     private static class ParamCreateContext {
         public BrokerFileGroup fileGroup;
@@ -196,11 +194,9 @@ public class FileScanNode extends LoadScanNode {
         this.computeResource = computeResource;
     }
 
-    @Override
-    public void init(Analyzer analyzer) throws StarRocksException {
-        super.init(analyzer);
+    public void init(DescriptorTable descriptorTable) throws StarRocksException {
+        this.descriptorTable = descriptorTable;
 
-        this.analyzer = analyzer;
         if (desc.getTable() != null) {
             Table tbl = desc.getTable();
             if (tbl instanceof BrokerTable) {
@@ -223,7 +219,7 @@ public class FileScanNode extends LoadScanNode {
         for (BrokerFileGroup fileGroup : fileGroups) {
             ParamCreateContext context = new ParamCreateContext();
             context.fileGroup = fileGroup;
-            context.timezone = analyzer.getTimezone();
+            context.timezone = TimeUtils.DEFAULT_TIME_ZONE;
             // csv/json/parquet load is controlled by Config::enable_vectorized_file_load
             // if Config::enable_vectorized_file_load is set true,
             // vectorized load will been enabled
@@ -340,7 +336,7 @@ public class FileScanNode extends LoadScanNode {
         params.setFlexible_column_mapping(flexibleColumnMapping);
         params.setFile_scan_type(fileScanType);
         initColumns(context);
-        initWhereExpr(fileGroup.getWhereExpr(), analyzer);
+        initWhereExpr(fileGroup.getWhereExpr());
     }
 
     /**
@@ -354,7 +350,7 @@ public class FileScanNode extends LoadScanNode {
      * @throws StarRocksException
      */
     private void initColumns(ParamCreateContext context) throws StarRocksException {
-        context.tupleDescriptor = analyzer.getDescTbl().createTupleDescriptor();
+        context.tupleDescriptor = descriptorTable.createTupleDescriptor();
         // columns in column list is case insensitive
         context.slotDescByName = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         context.exprMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
@@ -369,7 +365,7 @@ public class FileScanNode extends LoadScanNode {
         }
 
         Load.initColumns(targetTable, columnExprs,
-                context.fileGroup.getColumnToHadoopFunction(), context.exprMap, analyzer,
+                context.fileGroup.getColumnToHadoopFunction(), context.exprMap, descriptorTable,
                 context.tupleDescriptor, context.slotDescByName, context.params, true,
                 useVectorizedLoad, columnsFromPath);
     }
@@ -437,7 +433,7 @@ public class FileScanNode extends LoadScanNode {
                 expr.setType(Type.HLL);
             }
 
-            checkBitmapCompatibility(analyzer, destSlotDesc, expr);
+            checkBitmapCompatibility(destSlotDesc, expr);
 
             // analyze negative
             if (isNegative && destSlotDesc.getColumn().getAggregationType() == AggregateType.SUM) {
@@ -654,7 +650,7 @@ public class FileScanNode extends LoadScanNode {
     }
 
     @Override
-    public void finalizeStats(Analyzer analyzer) throws StarRocksException {
+    public void finalizeStats() throws StarRocksException {
         locationsList = Lists.newArrayList();
         locationsHeap = new PriorityQueue<>(SCAN_RANGE_LOCATIONS_COMPARATOR);
 

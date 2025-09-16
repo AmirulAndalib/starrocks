@@ -15,9 +15,6 @@
 package com.starrocks.load;
 
 import com.google.common.collect.Lists;
-import com.starrocks.analysis.BrokerDesc;
-import com.starrocks.analysis.TupleDescriptor;
-import com.starrocks.analysis.TupleId;
 import com.starrocks.catalog.MaterializedIndex;
 import com.starrocks.catalog.Partition;
 import com.starrocks.catalog.Replica;
@@ -36,8 +33,11 @@ import com.starrocks.common.util.UUIDUtil;
 import com.starrocks.planner.OlapScanNode;
 import com.starrocks.planner.PlanFragment;
 import com.starrocks.planner.ScanNode;
+import com.starrocks.planner.TupleDescriptor;
+import com.starrocks.planner.TupleId;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.server.WarehouseManager;
+import com.starrocks.sql.ast.BrokerDesc;
 import com.starrocks.task.ExportExportingTask;
 import com.starrocks.thrift.TInternalScanRange;
 import com.starrocks.thrift.TNetworkAddress;
@@ -88,7 +88,7 @@ public class ExportJobTest {
         //     3        0           3
         //     4        0           4
         //     5        0           5
-        TabletMeta tabletMeta = new TabletMeta(0L, 1L, 2L, 3L, 4, TStorageMedium.HDD, true);
+        TabletMeta tabletMeta = new TabletMeta(0L, 1L, 2L, 3L, TStorageMedium.HDD, true);
         new Expectations() {
             {
                 GlobalStateMgr.getCurrentState().getTabletInvertedIndex();
@@ -167,7 +167,7 @@ public class ExportJobTest {
         //     3        0           3
         //     4        0           4
         //     5        0           5
-        TabletMeta tabletMeta = new TabletMeta(0L, 1L, 2L, 3L, 4, TStorageMedium.HDD, false);
+        TabletMeta tabletMeta = new TabletMeta(0L, 1L, 2L, 3L, TStorageMedium.HDD, false);
         new Expectations() {
             {
                 GlobalStateMgr.getCurrentState().getTabletInvertedIndex();

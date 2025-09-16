@@ -17,7 +17,6 @@ package com.starrocks.server;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import com.starrocks.catalog.DataProperty;
 import com.starrocks.catalog.Database;
 import com.starrocks.catalog.HiveTable;
 import com.starrocks.catalog.LocalTablet;
@@ -41,20 +40,15 @@ import com.starrocks.common.util.PropertyAnalyzer;
 import com.starrocks.common.util.UUIDUtil;
 import com.starrocks.common.util.concurrent.lock.LockType;
 import com.starrocks.common.util.concurrent.lock.Locker;
-import com.starrocks.persist.EditLog;
-import com.starrocks.persist.ModifyPartitionInfo;
 import com.starrocks.persist.PhysicalPartitionPersistInfoV2;
 import com.starrocks.persist.TruncateTableInfo;
 import com.starrocks.persist.metablock.SRMetaBlockReader;
 import com.starrocks.persist.metablock.SRMetaBlockReaderV2;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.sql.ast.ColumnRenameClause;
-import com.starrocks.thrift.TStorageMedium;
 import com.starrocks.utframe.StarRocksAssert;
 import com.starrocks.utframe.UtFrameUtils;
 import mockit.Expectations;
-import mockit.Mock;
-import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -119,41 +113,6 @@ public class LocalMetaStoreTest {
     }
 
     @Test
-    public void testGetPartitionIdToStorageMediumMap() throws Exception {
-        starRocksAssert.withMaterializedView(
-                    "CREATE MATERIALIZED VIEW test.mv1\n" +
-                                "distributed by hash(k1) buckets 3\n" +
-                                "refresh async\n" +
-                                "properties(\n" +
-                                "'replication_num' = '1'\n" +
-                                ")\n" +
-                                "as\n" +
-                                "select k1,k2 from test.t1;");
-        Database db = GlobalStateMgr.getCurrentState().getLocalMetastore().getDb("test");
-        new MockUp<PartitionInfo>() {
-            @Mock
-            public DataProperty getDataProperty(long partitionId) {
-                return new DataProperty(TStorageMedium.SSD, 0);
-            }
-        };
-        new MockUp<EditLog>() {
-            @Mock
-            public void logModifyPartition(ModifyPartitionInfo info) {
-                Assertions.assertNotNull(info);
-                Assertions.assertTrue(GlobalStateMgr.getCurrentState().getLocalMetastore().getTable(db.getId(), info.getTableId())
-                            .isOlapTableOrMaterializedView());
-                Assertions.assertEquals(TStorageMedium.HDD, info.getDataProperty().getStorageMedium());
-                Assertions.assertEquals(DataProperty.MAX_COOLDOWN_TIME_MS, info.getDataProperty().getCooldownTimeMs());
-            }
-        };
-
-        LocalMetastore localMetastore = connectContext.getGlobalStateMgr().getLocalMetastore();
-        localMetastore.getPartitionIdToStorageMediumMap();
-        // Clean test.mv1, avoid its refreshment affecting other cases in this testsuite.
-        starRocksAssert.dropMaterializedView("test.mv1");
-    }
-
-    @Test
     public void testLoadClusterV2() throws Exception {
         LocalMetastore localMetaStore = new LocalMetastore(GlobalStateMgr.getCurrentState(),
                     GlobalStateMgr.getCurrentState().getRecycleBin(),
@@ -180,7 +139,7 @@ public class LocalMetaStoreTest {
         int schemaHash = table.getSchemaHashByIndexId(p.getBaseIndex().getId());
         MaterializedIndex index = new MaterializedIndex();
         TabletMeta tabletMeta = new TabletMeta(db.getId(), table.getId(), p.getId(),
-                    index.getId(), schemaHash, table.getPartitionInfo().getDataProperty(p.getParentId()).getStorageMedium());
+                    index.getId(), table.getPartitionInfo().getDataProperty(p.getParentId()).getStorageMedium());
         index.addTablet(new LocalTablet(0), tabletMeta);
         PhysicalPartitionPersistInfoV2 info = new PhysicalPartitionPersistInfoV2(
                     db.getId(), table.getId(), p.getParentId(), new PhysicalPartition(123, "", p.getId(), index));

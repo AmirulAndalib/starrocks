@@ -69,7 +69,7 @@ public class TabletInvertedIndex implements MemoryTrackable {
     public static final int NOT_EXIST_VALUE = -1;
 
     public static final TabletMeta NOT_EXIST_TABLET_META = new TabletMeta(NOT_EXIST_VALUE, NOT_EXIST_VALUE,
-            NOT_EXIST_VALUE, NOT_EXIST_VALUE, NOT_EXIST_VALUE, TStorageMedium.HDD);
+            NOT_EXIST_VALUE, NOT_EXIST_VALUE, TStorageMedium.HDD);
 
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
@@ -416,6 +416,15 @@ public class TabletInvertedIndex implements MemoryTrackable {
         readLock();
         try {
             return this.replicaToTabletMap.size();
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public Map<Long, Replica> getReplicas(long tabletId) {
+        readLock();
+        try {
+            return this.replicaMetaTable.get(tabletId);
         } finally {
             readUnlock();
         }

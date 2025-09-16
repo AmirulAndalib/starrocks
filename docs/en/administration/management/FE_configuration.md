@@ -8,6 +8,8 @@ import AdminSetFrontendNote from '../../_assets/commonMarkdown/FE_config_note.md
 
 import StaticFEConfigNote from '../../_assets/commonMarkdown/StaticFE_config_note.md'
 
+import EditionSpecificFEItem from '../../_assets/commonMarkdown/Edition_Specific_FE_Item.md'
+
 # FE Configuration
 
 <FEConfigMethod />
@@ -520,6 +522,42 @@ ADMIN SET FRONTEND CONFIG ("key" = "value");
 - Is mutable: Yes
 - Description: Whether to allow the system to process HTTP requests asynchronously. If this feature is enabled, an HTTP request received by Netty worker threads will then be submitted to a separate thread pool for service logic handling to avoid blocking the HTTP server. If disabled, Netty workers will handle the service logic.
 - Introduced in: 4.0.0
+
+##### enable_https
+
+- Default: false
+- Type: Boolean
+- Unit: -
+- Is mutable: No
+- Description: Whether to enable HTTPS server alongside HTTP server in FE nodes.
+- Introduced in: v4.0
+
+##### https_port
+
+- Default: 8443
+- Type: Int
+- Unit: -
+- Is mutable: No
+- Description: The port on which the HTTPS server in the FE node listens.
+- Introduced in: v4.0
+
+##### ssl_cipher_whitelist
+
+- Default: Empty string
+- Type: String
+- Unit: -
+- Is mutable: No
+- Description: Comma separated list, with regex support to whitelist ssl cipher suites by IANA names. If both whitelist and blacklist are set, blacklist takes precedence.
+- Introduced in: v4.0
+
+##### ssl_cipher_blacklist
+
+- Default: Empty string
+- Type: String
+- Unit: -
+- Is mutable: No
+- Description: Comma separated list, with regex support to blacklist ssl cipher suites by IANA names. If both whitelist and blacklist are set, blacklist takes precedence.
+- Introduced in: v4.0
 
 ##### http_async_threads_num
 
@@ -1150,6 +1188,18 @@ ADMIN SET FRONTEND CONFIG ("key" = "value");
 - Is mutable: Yes
 - Description: The interval at which the Automated Cluster Snapshot tasks are triggered.
 - Introduced in: v3.4.2
+
+##### enable_table_name_case_insensitive
+
+- Default: false
+- Type: Boolean
+- Unit: -
+- Is mutable: No
+- Description: Whether to enable case-insensitive processing on catalog names, database names, table names, view names, and materialized view names. Currently, table names are case-sensitive by default.
+  - After enabling this feature, all related names will be stored in lowercase, and all SQL commands containing these names will automatically convert them to lowercase.
+  - You can enable this feature only when creating a cluster. **After the cluster is started, the value of this configuration cannot be modified by any means**. Any attempt to modify it will result in an error. FE will fail to start when it detects that the value of this configuration item is inconsistent with that when the cluster was first started.
+  - Currently, this feature does not support JDBC catalog and table names. Do not enable this feature if you want to perform case-insensitive processing on JDBC or ODBC data sources.
+- Introduced in: v4.0
 
 ### User, role, and privilege
 
@@ -1927,6 +1977,24 @@ Starting from version 3.3.0, the system defaults to refreshing one partition at 
 - Description: Threshold of low cardinality dictionary.
 - Introduced in: v3.5.0
 
+##### enable_manual_collect_array_ndv
+
+- Default: false
+- Type: Boolean
+- Unit: -
+- Is mutable: Yes
+- Description: Whether to enable manual collection for the NDV information of the ARRAY type.
+- Introduced in: v4.0
+
+##### enable_auto_collect_array_ndv
+
+- Default: false
+- Type: Boolean
+- Unit: -
+- Is mutable: Yes
+- Description: Whether to enable automatic collection for the NDV information of the ARRAY type.
+- Introduced in: v4.0
+
 ### Loading and unloading
 
 ##### load_straggler_wait_second
@@ -2047,17 +2115,6 @@ Starting from version 3.3.0, the system defaults to refreshing one partition at 
 - Introduced in: -
 -->
 
-<!--
-##### prepared_transaction_default_timeout_second
-
-- Default: 86400
-- Type: Int
-- Unit: Seconds
-- Is mutable: Yes
-- Description:
-- Introduced in: -
--->
-
 ##### max_load_timeout_second
 
 - Default: 259200
@@ -2074,6 +2131,15 @@ Starting from version 3.3.0, the system defaults to refreshing one partition at 
 - Unit: Seconds
 - Is mutable: Yes
 - Description: The minimum timeout duration allowed for a load job. This limit applies to all types of load jobs.
+- Introduced in: -
+
+##### prepared_transaction_default_timeout_second
+
+- Default: 86400
+- Type: Int
+- Unit: Seconds
+- Is mutable: Yes
+- Description: The default timeout duration for a prepared transaction.
 - Introduced in: -
 
 ##### spark_dpp_version
@@ -2501,6 +2567,15 @@ Starting from version 3.3.0, the system defaults to refreshing one partition at 
 - Is mutable: Yes
 - Description: The time to keep the coordinator mapping in the cache before it's evicted(TTL).
 - Introduced in: -
+
+##### enable_file_bundling
+
+- Default: true
+- Type: Boolean
+- Unit: -
+- Is mutable: Yes
+- Description: Whether to enable the File Bundling optimization for the cloud-native table. When this feature is enabled (set to `true`), the system automatically bundles the data files generated by loading, Compaction, or Publish operations, thereby reducing the API cost caused by high-frequency access to the external storage system. You can also control this behavior on the table level using the CREATE TABLE property `file_bundling`. For detailed instructions, see [CREATE TABLE](../../sql-reference/sql-statements/table_bucket_part_index/CREATE_TABLE.md).
+- Introduced in: v4.0
 
 ### Storage
 
@@ -3436,7 +3511,7 @@ Starting from version 3.3.0, the system defaults to refreshing one partition at 
 
 ##### lake_enable_balance_tablets_between_workers
 
-- Default: false
+- Default: true
 - Type: Boolean
 - Unit: -
 - Is mutable: Yes
@@ -3818,15 +3893,6 @@ Starting from version 3.3.0, the system defaults to refreshing one partition at 
 - Unit: -
 - Is mutable: No
 - Description: The root directory of small files.
-- Introduced in: -
-
-##### enable_auth_check
-
-- Default: true
-- Type: Boolean
-- Unit: -
-- Is mutable: No
-- Description: Specifies whether to enable the authentication check feature. Valid values: `TRUE` and `FALSE`. `TRUE` specifies to enable this feature, and `FALSE` specifies to disable this feature.
 - Introduced in: -
 
 <!--
@@ -5357,7 +5423,7 @@ Starting from version 3.3.0, the system defaults to refreshing one partition at 
 - Default: 8
 - Type: Int
 - Unit: -
-- Is mutable: Yes
+- Is mutable: No
 - Description: The maximum capacity of the JDBC connection pool for accessing JDBC catalogs.
 - Introduced in: -
 
@@ -5366,7 +5432,7 @@ Starting from version 3.3.0, the system defaults to refreshing one partition at 
 - Default: 1
 - Type: Int
 - Unit: -
-- Is mutable: Yes
+- Is mutable: No
 - Description: The minimum number of idle connections in the JDBC connection pool for accessing JDBC catalogs.
 - Introduced in: -
 
@@ -5375,7 +5441,7 @@ Starting from version 3.3.0, the system defaults to refreshing one partition at 
 - Default: 600000
 - Type: Int
 - Unit: Milliseconds
-- Is mutable: Yes
+- Is mutable: No
 - Description: The maximum amount of time after which a connection for accessing a JDBC catalog times out. Timed-out connections are considered idle.
 - Introduced in: -
 
@@ -5499,7 +5565,6 @@ Starting from version 3.3.0, the system defaults to refreshing one partition at 
 - Description: Whether to enable prefixes with materialized view names in logs for better debug.
 - Introduced in: v3.4.0
 
-
 ##### enable_mv_post_image_reload_cache
 
 - Default: true
@@ -5508,3 +5573,23 @@ Starting from version 3.3.0, the system defaults to refreshing one partition at 
 - Is mutable: Yes
 - Description: Whether to perform reload flag check after FE loaded an image. If the check is performed for a base materialized view, it is not needed for other materialized views that related to it.
 - Introduced in: v3.5.0
+
+##### enable_trace_historical_node
+
+- Default: false
+- Type: Boolean
+- Unit: -
+- Is mutable: Yes
+- Description: Whether to allow the system to trace the historical nodes. By setting this item to `true`, you can enable the Cache Sharing feature and allow the system to choose the right cache nodes during elastic scaling.
+- Introduced in: v3.5.1
+
+##### transform_type_prefer_string_for_varchar
+
+- Default: true
+- Type: Boolean
+- Unit: -
+- Is mutable: Yes
+- Description: Whether to prefer string type for fixed length varchar columns in materialized view creation and CTAS operations.
+- Introduced in: v4.0.0
+
+<EditionSpecificFEItem />

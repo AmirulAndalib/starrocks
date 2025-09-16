@@ -17,6 +17,7 @@
 #include "column/bytes.h"
 #include "column/column.h"
 #include "column/datum.h"
+#include "column/german_string.h"
 #include "column/vectorized_fwd.h"
 #include "common/statusor.h"
 #include "gutil/strings/fastmem.h"
@@ -48,7 +49,9 @@ public:
     };
 
     using Container = Buffer<Slice>;
+    using GermanStringContainer = Buffer<GermanString>;
     using ProxyContainer = BinaryDataProxyContainer;
+    using ImmContainer = BinaryDataProxyContainer;
 
     // TODO(kks): when we create our own vector, we could let vector[-1] = 0,
     // and then we don't need explicitly emplace_back zero value
@@ -203,6 +206,9 @@ public:
 
     bool append_continuous_fixed_length_strings(const char* data, size_t size, int fixed_length) override;
 
+    void append_bytes(char* const* data, uint32_t* length, size_t size);
+    void append_bytes_overflow(char* const* data, uint32_t* length, size_t size, size_t max_length);
+
     size_t append_numbers(const void* buff, size_t length) override { return -1; }
 
     void append_value_multiple_times(const void* value, size_t count) override;
@@ -272,6 +278,8 @@ public:
     void crc32_hash_with_selection(uint32_t* seed, uint8_t* selection, uint16_t from, uint16_t to) const override;
     void crc32_hash_selective(uint32_t* hashes, uint16_t* sel, uint16_t sel_size) const override;
 
+    void murmur_hash3_x86_32(uint32_t* hash, uint32_t from, uint32_t to) const override;
+
     int64_t xor_checksum(uint32_t from, uint32_t to) const override;
 
     void put_mysql_row_buffer(MysqlRowBuffer* buf, size_t idx, bool is_binary_protocol = false) const override;
@@ -296,6 +304,20 @@ public:
             _build_slices();
         }
         return _slices;
+    }
+
+    GermanStringContainer& get_german_strings() {
+        if (!_german_strings_cache) {
+            _build_german_strings();
+        }
+        return _german_strings;
+    }
+
+    const GermanStringContainer& get_german_strings() const {
+        if (!_german_strings_cache) {
+            _build_german_strings();
+        }
+        return _german_strings;
     }
 
     const BinaryDataProxyContainer& get_proxy_data() const { return _immuable_container; }
@@ -336,7 +358,10 @@ public:
         _slices_cache = false;
     }
 
-    void invalidate_slice_cache() { _slices_cache = false; }
+    void invalidate_slice_cache() {
+        _slices_cache = false;
+        _german_strings_cache = false;
+    }
 
     std::string debug_item(size_t idx) const override;
 
@@ -360,12 +385,16 @@ public:
 
 private:
     void _build_slices() const;
+    void _build_german_strings() const;
 
     Bytes _bytes;
     Offsets _offsets;
 
     mutable Container _slices;
     mutable bool _slices_cache = false;
+    mutable GermanStringContainer _german_strings;
+    mutable bool _german_strings_cache = false;
+
     BinaryDataProxyContainer _immuable_container = BinaryDataProxyContainer(*this);
 };
 

@@ -19,7 +19,6 @@
 #include <libdivide.h>
 
 #include <algorithm>
-#include <mutex>
 #include <string_view>
 #include <unordered_map>
 
@@ -299,7 +298,7 @@ StatusOr<ColumnPtr> TimeFunctions::utc_time(FunctionContext* context, const Colu
 }
 
 StatusOr<ColumnPtr> TimeFunctions::timestamp(FunctionContext* context, const Columns& columns) {
-    return columns[0];
+    return std::move(*columns[0]).mutate();
 }
 
 static const std::vector<int> NOW_PRECISION_FACTORS = {1000000, 100000, 10000, 1000, 100, 10, 1};
@@ -519,6 +518,13 @@ DEFINE_UNARY_FN_WITH_IMPL(day_of_week_isoImpl, v) {
     return (day + 6) % 7 + 1;
 }
 DEFINE_TIME_UNARY_FN(day_of_week_iso, TYPE_DATETIME, TYPE_INT);
+
+// week_day
+DEFINE_UNARY_FN_WITH_IMPL(week_dayImpl, v) {
+    int day = ((DateValue)v).weekday();
+    return (day + 6) % 7;
+}
+DEFINE_TIME_UNARY_FN(week_day, TYPE_DATETIME, TYPE_INT);
 
 DEFINE_UNARY_FN_WITH_IMPL(time_to_secImpl, v) {
     return static_cast<int64_t>(v);
@@ -902,6 +908,7 @@ Status TimeFunctions::time_slice_prepare(FunctionContext* context, FunctionConte
     }
 
     ColumnPtr column_format = context->get_constant_column(2);
+    RETURN_IF(column_format == nullptr, Status::InvalidArgument("time_slice requires constant parameter"));
     Slice format_slice = ColumnHelper::get_const_value<TYPE_VARCHAR>(column_format);
     auto period_unit = format_slice.to_string();
 
@@ -1466,7 +1473,7 @@ StatusOr<ColumnPtr> TimeFunctions::to_unix_from_datetime_with_format_32(Function
 }
 
 StatusOr<ColumnPtr> TimeFunctions::to_unix_for_now_64(FunctionContext* context, const Columns& columns) {
-    DCHECK_EQ(columns.size(), 0);
+    RETURN_IF(0 != columns.size(), Status::InvalidArgument("to_unix_for_now requires 0 arguments"));
     int64_t value = context->state()->timestamp_ms() / 1000;
     auto result = Int64Column::create();
     result->append(value);
@@ -1474,7 +1481,7 @@ StatusOr<ColumnPtr> TimeFunctions::to_unix_for_now_64(FunctionContext* context, 
 }
 
 StatusOr<ColumnPtr> TimeFunctions::to_unix_for_now_32(FunctionContext* context, const Columns& columns) {
-    DCHECK_EQ(columns.size(), 0);
+    RETURN_IF(0 != columns.size(), Status::InvalidArgument("to_unix_for_now requires 0 arguments"));
     int64_t value = context->state()->timestamp_ms() / 1000;
     auto result = Int32Column::create();
     result->append(value);
@@ -1573,7 +1580,18 @@ static inline int64_t impl_hour_from_unixtime(int64_t unixtime) {
     // return (unixtime % 86400) / 3600;
     static const libdivide::divider<int64_t> fast_div_3600(3600);
     static const libdivide::divider<int64_t> fast_div_86400(86400);
-    int64_t hour = (unixtime - unixtime / fast_div_86400 * 86400) / fast_div_3600;
+
+    // Handle negative unixtime correctly by ensuring positive remainder
+    int64_t remainder;
+    if (LIKELY(unixtime >= 0)) {
+        remainder = unixtime - unixtime / fast_div_86400 * 86400;
+    } else {
+        remainder = unixtime % 86400;
+        if (remainder < 0) {
+            remainder += 86400;
+        }
+    }
+    int64_t hour = remainder / fast_div_3600;
     return hour;
 }
 
@@ -1587,9 +1605,7 @@ StatusOr<ColumnPtr> TimeFunctions::hour_from_unixtime(FunctionContext* context, 
     auto ctz = context->state()->timezone_obj();
     auto size = columns[0]->size();
     ColumnViewer<TYPE_BIGINT> data_column(columns[0]);
-    ColumnBuilder<TYPE_INT> result(size);
-    std::vector<int64_t> batch;
-
+    ColumnBuilder<TYPE_TINYINT> result(size);
     for (int row = 0; row < size; ++row) {
         if (data_column.is_null(row)) {
             result.append_null();
@@ -1602,18 +1618,10 @@ StatusOr<ColumnPtr> TimeFunctions::hour_from_unixtime(FunctionContext* context, 
             continue;
         }
 
-        batch.push_back(date);
-
-        if (batch.size() == 16 || row == size - 1) {
-            for (int i = 0; i < batch.size(); i++) {
-                int64_t dt = batch[i];
-                cctz::time_point<cctz::sys_seconds> t = epoch + cctz::seconds(dt);
-                int offset = ctz.lookup_offset(t).offset;
-                int hour = impl_hour_from_unixtime(dt + offset);
-                result.append(hour);
-            }
-            batch.clear();
-        }
+        cctz::time_point<cctz::sys_seconds> t = epoch + cctz::seconds(date);
+        int offset = ctz.lookup_offset(t).offset;
+        int hour = impl_hour_from_unixtime(date + offset);
+        result.append(hour);
     }
     return result.build(ColumnHelper::is_all_const(columns));
 }
@@ -3178,7 +3186,7 @@ Status TimeFunctions::date_trunc_prepare(FunctionContext* context, FunctionConte
 }
 
 StatusOr<ColumnPtr> TimeFunctions::date_trunc_day(FunctionContext* context, const starrocks::Columns& columns) {
-    return columns[1];
+    return std::move(*columns[1]).mutate();
 }
 
 DEFINE_UNARY_FN_WITH_IMPL(date_trunc_monthImpl, v) {
@@ -3890,3 +3898,5 @@ StatusOr<ColumnPtr> TimeFunctions::time_format(FunctionContext* context, const s
 }
 
 } // namespace starrocks
+
+#include "gen_cpp/opcode/TimeFunctions.inc"

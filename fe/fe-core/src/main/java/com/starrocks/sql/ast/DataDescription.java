@@ -20,14 +20,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.starrocks.analysis.BinaryPredicate;
-import com.starrocks.analysis.BinaryType;
-import com.starrocks.analysis.Expr;
-import com.starrocks.analysis.FunctionCallExpr;
-import com.starrocks.analysis.NullLiteral;
-import com.starrocks.analysis.ParseNode;
-import com.starrocks.analysis.SlotRef;
-import com.starrocks.analysis.StringLiteral;
 import com.starrocks.authorization.AccessDeniedException;
 import com.starrocks.authorization.ObjectType;
 import com.starrocks.authorization.PrivilegeType;
@@ -43,7 +35,15 @@ import com.starrocks.qe.ConnectContext;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.sql.analyzer.AstToSQLBuilder;
 import com.starrocks.sql.analyzer.Authorizer;
+import com.starrocks.sql.analyzer.ColumnDefAnalyzer;
 import com.starrocks.sql.analyzer.SemanticException;
+import com.starrocks.sql.ast.expression.BinaryPredicate;
+import com.starrocks.sql.ast.expression.BinaryType;
+import com.starrocks.sql.ast.expression.Expr;
+import com.starrocks.sql.ast.expression.FunctionCallExpr;
+import com.starrocks.sql.ast.expression.NullLiteral;
+import com.starrocks.sql.ast.expression.SlotRef;
+import com.starrocks.sql.ast.expression.StringLiteral;
 import com.starrocks.sql.parser.NodePosition;
 import com.starrocks.thrift.TNetworkAddress;
 import org.apache.logging.log4j.LogManager;
@@ -55,6 +55,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.stream.Collectors;
+
+import static com.starrocks.common.util.Util.normalizeName;
 // used to describe data info which is needed to import.
 //
 //      data_desc:
@@ -180,7 +182,7 @@ public class DataDescription implements ParseNode {
                            Expr whereExpr,
                            CsvFormat csvFormat, NodePosition pos) {
         this.pos = pos;
-        this.tableName = tableName;
+        this.tableName = normalizeName(tableName);
         this.partitionNames = partitionNames;
         this.filePaths = filePaths;
         this.fileFieldNames = columns;
@@ -212,7 +214,7 @@ public class DataDescription implements ParseNode {
                            List<Expr> columnMappingList,
                            Expr whereExpr, NodePosition pos) {
         this.pos = pos;
-        this.tableName = tableName;
+        this.tableName = normalizeName(tableName);
         this.partitionNames = partitionNames;
         this.filePaths = null;
         this.fileFieldNames = null;
@@ -223,7 +225,7 @@ public class DataDescription implements ParseNode {
         this.isNegative = isNegative;
         this.columnMappingList = columnMappingList;
         this.whereExpr = whereExpr;
-        this.srcTableName = srcTableName;
+        this.srcTableName = normalizeName(srcTableName);
     }
 
     public String getTableName() {
@@ -578,7 +580,7 @@ public class DataDescription implements ParseNode {
         }
 
         if (args.get(0) != null) {
-            ColumnDef.validateDefaultValue(column.getType(), new StringLiteral(args.get(0)));
+            ColumnDefAnalyzer.validateDefaultValue(column.getType(), new StringLiteral(args.get(0)));
         }
     }
 
@@ -618,7 +620,7 @@ public class DataDescription implements ParseNode {
         }
 
         if (replaceValue != null) {
-            ColumnDef.validateDefaultValue(column.getType(), new StringLiteral(replaceValue));
+            ColumnDefAnalyzer.validateDefaultValue(column.getType(), new StringLiteral(replaceValue));
         }
     }
 
@@ -695,7 +697,7 @@ public class DataDescription implements ParseNode {
         }
 
         if (partitionNames != null) {
-            partitionNames.analyze(null);
+            partitionNames.analyze();
         }
 
         analyzeColumns();

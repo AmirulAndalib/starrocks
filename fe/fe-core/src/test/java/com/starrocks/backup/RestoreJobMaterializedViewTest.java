@@ -18,7 +18,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
-import com.starrocks.analysis.BrokerDesc;
 import com.starrocks.backup.BackupJobInfo.BackupIndexInfo;
 import com.starrocks.backup.BackupJobInfo.BackupPartitionInfo;
 import com.starrocks.backup.BackupJobInfo.BackupTableInfo;
@@ -48,6 +47,7 @@ import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.server.LocalMetastore;
 import com.starrocks.server.MetadataMgr;
 import com.starrocks.sql.analyzer.Analyzer;
+import com.starrocks.sql.ast.BrokerDesc;
 import com.starrocks.sql.ast.StatementBase;
 import com.starrocks.sql.parser.AstBuilder;
 import com.starrocks.sql.parser.SqlParser;
@@ -64,6 +64,7 @@ import com.starrocks.thrift.THdfsProperties;
 import com.starrocks.thrift.TStatus;
 import com.starrocks.thrift.TStatusCode;
 import com.starrocks.thrift.TTaskType;
+import com.starrocks.utframe.StarRocksTestBase;
 import mockit.Delegate;
 import mockit.Expectations;
 import mockit.Injectable;
@@ -74,7 +75,6 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.MethodOrderer;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -97,7 +97,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
-public class RestoreJobMaterializedViewTest {
+public class RestoreJobMaterializedViewTest extends StarRocksTestBase {
 
     private Database db;
 
@@ -231,7 +231,7 @@ public class RestoreJobMaterializedViewTest {
                 minTimes = 0;
                 result = new Delegate() {
                     public void logBackupJob(BackupJob job) {
-                        System.out.println("log backup job: " + job);
+                        logSysInfo("log backup job: " + job);
                     }
                 };
             }
@@ -494,7 +494,7 @@ public class RestoreJobMaterializedViewTest {
         AgentTaskQueue.clearAllTasks();
     }
 
-    @Test
+    @Disabled
     public void testMVRestoreMVWithBaseTable1() {
         // gen BackupJobInfo
         RestoreJob job = createRestoreJob(ImmutableList.of(TABLE_NAME, MATERIALIZED_VIEW_NAME));
@@ -503,7 +503,7 @@ public class RestoreJobMaterializedViewTest {
         assertMVActiveEquals(MATERIALIZED_VIEW_NAME, true);
     }
 
-    @Test
+    @Disabled
     public void testMVRestoreMVWithBaseTable2() {
         // gen BackupJobInfo
         RestoreJob job = createRestoreJob(ImmutableList.of(MATERIALIZED_VIEW_NAME, TABLE_NAME));

@@ -19,18 +19,19 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import com.starrocks.analysis.Expr;
 import com.starrocks.catalog.AggregateFunction;
 import com.starrocks.catalog.Column;
 import com.starrocks.catalog.Function;
 import com.starrocks.catalog.FunctionSet;
 import com.starrocks.catalog.KeysType;
 import com.starrocks.catalog.OlapTable;
+import com.starrocks.catalog.PhysicalPartition;
 import com.starrocks.catalog.Type;
 import com.starrocks.common.FeConstants;
 import com.starrocks.common.Pair;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.server.GlobalStateMgr;
+import com.starrocks.sql.ast.expression.Expr;
 import com.starrocks.sql.optimizer.OptExpression;
 import com.starrocks.sql.optimizer.OptExpressionVisitor;
 import com.starrocks.sql.optimizer.Utils;
@@ -79,7 +80,7 @@ import java.util.Set;
 import java.util.function.BooleanSupplier;
 import java.util.stream.Collectors;
 
-import static com.starrocks.analysis.BinaryType.EQ_FOR_NULL;
+import static com.starrocks.sql.ast.expression.BinaryType.EQ_FOR_NULL;
 
 /**
  * For a low cardinality string column with global dict, we will rewrite the plan to
@@ -495,7 +496,7 @@ public class AddDecodeNodeForDictStringRule implements TreeRewriteRule {
                             .setOp(newOlapScan)
                             .setInputs(Lists.newArrayList())
                             .setLogicalProperty(rewriteLogicProperty(optExpression.getLogicalProperty(),
-                            context.stringColumnIdToDictColumnIds))
+                                    context.stringColumnIdToDictColumnIds))
                             .setStatistics(optExpression.getStatistics())
                             .setCost(optExpression.getCost());
                     return visitProjectionAfter(builder.build(), context);
@@ -926,8 +927,8 @@ public class AddDecodeNodeForDictStringRule implements TreeRewriteRule {
 
         for (PhysicalOlapScanOperator scanOperator : scanOperators) {
             OlapTable table = (OlapTable) scanOperator.getTable();
-            long version = table.getPartitions().stream().map(p -> p.getDefaultPhysicalPartition().getVisibleVersionTime())
-                    .max(Long::compareTo).orElse(0L);
+            long version = table.getPartitions().stream().flatMap(p -> p.getSubPartitions().stream()).map(
+                    PhysicalPartition::getVisibleVersionTime).max(Long::compareTo).orElse(0L);
 
             if ((table.getKeysType().equals(KeysType.PRIMARY_KEYS))) {
                 continue;
@@ -947,7 +948,8 @@ public class AddDecodeNodeForDictStringRule implements TreeRewriteRule {
                 }
 
                 ColumnStatistic columnStatistic =
-                        GlobalStateMgr.getCurrentState().getStatisticStorage().getColumnStatistic(table, column.getName());
+                        GlobalStateMgr.getCurrentState().getStatisticStorage()
+                                .getColumnStatistic(table, column.getName());
                 // Condition 2: the varchar column is low cardinality string column
                 if (!FeConstants.USE_MOCK_DICT_MANAGER && (columnStatistic.isUnknown() ||
                         columnStatistic.getDistinctValuesCount() > CacheDictManager.LOW_CARDINALITY_THRESHOLD)) {
@@ -1015,7 +1017,8 @@ public class AddDecodeNodeForDictStringRule implements TreeRewriteRule {
                 .setInputs(Lists.newArrayList(childExpr))
                 .setStatistics(childExpr.get(0).getStatistics())
                 .setCost(childExpr.get(0).getCost())
-                .setLogicalProperty(DecodeVisitor.rewriteLogicProperty(decodeProperty, decodeOperator.getDictIdToStringsId()));
+                .setLogicalProperty(
+                        DecodeVisitor.rewriteLogicProperty(decodeProperty, decodeOperator.getDictIdToStringsId()));
         context.clear();
         return builder.build();
     }

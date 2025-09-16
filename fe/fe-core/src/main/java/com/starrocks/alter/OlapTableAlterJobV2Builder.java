@@ -62,6 +62,7 @@ public class OlapTableAlterJobV2Builder extends AlterJobV2Builder {
         schemaChangeJob.setStartTime(startTime);
         schemaChangeJob.setSortKeyIdxes(sortKeyIdxes);
         schemaChangeJob.setSortKeyUniqueIds(sortKeyUniqueIds);
+        schemaChangeJob.setDisableReplicatedStorageForGIN(disableReplicatedStorageForGIN);
         /*
          * Create schema change job
          * 1. For each index which has been changed, create a SHADOW index, and save the mapping of origin index to SHADOW index.
@@ -95,7 +96,7 @@ public class OlapTableAlterJobV2Builder extends AlterJobV2Builder {
                 MaterializedIndex shadowIndex = new MaterializedIndex(shadowIndexId, MaterializedIndex.IndexState.SHADOW);
                 MaterializedIndex originIndex = partition.getIndex(originIndexId);
                 TabletMeta shadowTabletMeta = new TabletMeta(
-                        dbId, tableId, physicalPartitionId, shadowIndexId, newSchemaHash, medium);
+                        dbId, tableId, physicalPartitionId, shadowIndexId, medium);
                 Map<Long, Long> tabletIdMap = new HashMap<>();
                 for (Tablet originTablet : originIndex.getTablets()) {
                     long originTabletId = originTablet.getId();

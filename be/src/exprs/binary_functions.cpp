@@ -17,13 +17,10 @@
 #include "column/binary_column.h"
 #include "column/column_builder.h"
 #include "column/column_helper.h"
-#include "column/column_viewer.h"
 #include "column/nullable_column.h"
-#include "exprs/base64.h"
 #include "exprs/encryption_functions.h"
 #include "exprs/function_helper.h"
 #include "exprs/string_functions.h"
-#include "gutil/strings/escaping.h"
 
 namespace starrocks {
 
@@ -36,7 +33,7 @@ StatusOr<ColumnPtr> BinaryFunctions::to_binary(FunctionContext* context, const C
     auto to_binary_type = state->to_binary_type;
     switch (to_binary_type) {
     case BinaryFormatType::UTF8:
-        return src_column;
+        return std::move(*src_column).mutate();
     case BinaryFormatType::ENCODE64:
         return EncryptionFunctions::from_base64(context, columns);
     default:
@@ -82,7 +79,7 @@ StatusOr<ColumnPtr> BinaryFunctions::from_binary(FunctionContext* context, const
     auto to_binary_type = state->to_binary_type;
     switch (to_binary_type) {
     case BinaryFormatType::UTF8:
-        return src_column;
+        return std::move(*src_column).mutate();
     case BinaryFormatType::ENCODE64:
         return EncryptionFunctions::to_base64(context, columns);
     default:
@@ -147,3 +144,5 @@ StatusOr<ColumnPtr> BinaryFunctions::iceberg_truncate_binary(FunctionContext* co
 }
 
 } // namespace starrocks
+
+#include "gen_cpp/opcode/BinaryFunctions.inc"

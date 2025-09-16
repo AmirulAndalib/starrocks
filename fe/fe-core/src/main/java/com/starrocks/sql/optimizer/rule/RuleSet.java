@@ -85,6 +85,7 @@ import com.starrocks.sql.optimizer.rule.transformation.MergeLimitWithSortRule;
 import com.starrocks.sql.optimizer.rule.transformation.MergeTwoFiltersRule;
 import com.starrocks.sql.optimizer.rule.transformation.MergeTwoProjectRule;
 import com.starrocks.sql.optimizer.rule.transformation.MinMaxOptOnScanRule;
+import com.starrocks.sql.optimizer.rule.transformation.OuterJoinEliminationRule;
 import com.starrocks.sql.optimizer.rule.transformation.PartitionPruneRule;
 import com.starrocks.sql.optimizer.rule.transformation.PruneAggregateColumnsRule;
 import com.starrocks.sql.optimizer.rule.transformation.PruneCTEConsumeColumnsRule;
@@ -151,6 +152,7 @@ import com.starrocks.sql.optimizer.rule.transformation.RewriteBitmapCountDistinc
 import com.starrocks.sql.optimizer.rule.transformation.RewriteCountIfFunction;
 import com.starrocks.sql.optimizer.rule.transformation.RewriteDuplicateAggregateFnRule;
 import com.starrocks.sql.optimizer.rule.transformation.RewriteHllCountDistinctRule;
+import com.starrocks.sql.optimizer.rule.transformation.RewriteMinMaxByMonotonicFunctionRule;
 import com.starrocks.sql.optimizer.rule.transformation.RewriteSimpleAggToHDFSScanRule;
 import com.starrocks.sql.optimizer.rule.transformation.RewriteSimpleAggToMetaScanRule;
 import com.starrocks.sql.optimizer.rule.transformation.RewriteSumByAssociativeRule;
@@ -168,6 +170,12 @@ import com.starrocks.sql.optimizer.rule.transformation.materialization.rule.Aggr
 import com.starrocks.sql.optimizer.rule.transformation.materialization.rule.OnlyJoinRule;
 import com.starrocks.sql.optimizer.rule.transformation.materialization.rule.OnlyScanRule;
 import com.starrocks.sql.optimizer.rule.transformation.pruner.CboTablePruneRule;
+import com.starrocks.sql.optimizer.rule.tvr.TvrAggregateRule;
+import com.starrocks.sql.optimizer.rule.tvr.TvrFilterRule;
+import com.starrocks.sql.optimizer.rule.tvr.TvrJoinRule;
+import com.starrocks.sql.optimizer.rule.tvr.TvrProjectRule;
+import com.starrocks.sql.optimizer.rule.tvr.TvrTableScanRule;
+import com.starrocks.sql.optimizer.rule.tvr.TvrUnionAllRule;
 
 import java.util.List;
 
@@ -321,7 +329,8 @@ public class RuleSet {
                     new RewriteDuplicateAggregateFnRule(),
                     new RewriteSimpleAggToMetaScanRule(),
                     new RewriteSumByAssociativeRule(),
-                    new RewriteCountIfFunction()
+                    new RewriteCountIfFunction(),
+                    new RewriteMinMaxByMonotonicFunctionRule()
             ));
 
     public static final Rule PRUNE_PROJECT_RULES = new CombinationRule(RuleType.GP_PRUNE_PROJECT, ImmutableList.of(
@@ -418,6 +427,16 @@ public class RuleSet {
                     new MinMaxOptOnScanRule()
             ));
 
+    public static final Rule TVR_REWRITE_RULES =
+            new CombinationRule(RuleType.GP_TVR_REWRITE, ImmutableList.of(
+                    new TvrTableScanRule(),
+                    new TvrProjectRule(),
+                    new TvrFilterRule(),
+                    new TvrJoinRule(),
+                    new TvrAggregateRule(),
+                    new TvrUnionAllRule()
+            ));
+
     public RuleSet() {
         // Add common transform rule
         transformRules.add(SplitMultiPhaseAggRule.getInstance());
@@ -434,6 +453,7 @@ public class RuleSet {
     public void addOuterJoinTransformationRules() {
         transformRules.add(JoinAssociativityRule.OUTER_JOIN_ASSOCIATIVITY_RULE);
         transformRules.add(JoinLeftAsscomRule.OUTER_JOIN_LEFT_ASSCOM_RULE);
+        transformRules.add(OuterJoinEliminationRule.getInstance());
     }
 
     public void addJoinCommutativityWithoutInnerRule() {

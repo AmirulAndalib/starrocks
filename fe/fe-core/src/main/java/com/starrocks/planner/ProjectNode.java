@@ -14,17 +14,11 @@
 
 package com.starrocks.planner;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import com.starrocks.analysis.Analyzer;
-import com.starrocks.analysis.DescriptorTable;
-import com.starrocks.analysis.Expr;
-import com.starrocks.analysis.SlotId;
-import com.starrocks.analysis.SlotRef;
-import com.starrocks.analysis.TupleDescriptor;
 import com.starrocks.common.Pair;
-import com.starrocks.common.StarRocksException;
+import com.starrocks.sql.ast.expression.Expr;
+import com.starrocks.sql.ast.expression.SlotRef;
 import com.starrocks.thrift.TExplainLevel;
 import com.starrocks.thrift.TNormalPlanNode;
 import com.starrocks.thrift.TNormalProjectNode;
@@ -71,13 +65,6 @@ public class ProjectNode extends PlanNode {
     }
 
     @Override
-    public void init(Analyzer analyzer) throws StarRocksException {
-        Preconditions.checkState(conjuncts.isEmpty());
-        computeStats(analyzer);
-        createDefaultSmap(analyzer);
-    }
-
-    @Override
     protected String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder output = new StringBuilder();
 
@@ -101,7 +88,7 @@ public class ProjectNode extends PlanNode {
                 output.append("<slot ").
                         append(kv.first).
                         append("> : ").
-                        append(kv.second.toSql()).
+                        append(explainExpr(kv.second)).
                         append("\n");
             }
         }
@@ -116,7 +103,7 @@ public class ProjectNode extends PlanNode {
                     output.append("<slot ").
                             append(kv.getKey()).
                             append("> : ").
-                            append(kv.getValue().toSql()).
+                            append(explainExpr(kv.getValue())).
                             append("\n");
                 }
             }

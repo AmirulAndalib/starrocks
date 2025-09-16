@@ -45,7 +45,7 @@ namespace starrocks {
 const std::string StarRocksMetrics::_s_registry_name = "starrocks_be";
 const std::string StarRocksMetrics::_s_hook_name = "starrocks_metrics";
 
-StarRocksMetrics::StarRocksMetrics() : _metrics(_s_registry_name), _table_metrics_mgr(&_metrics) {
+StarRocksMetrics::StarRocksMetrics() : _metrics(_s_registry_name) {
 #define REGISTER_STARROCKS_METRIC(name) _metrics.register_metric(#name, &name)
     // You can put StarRocksMetrics's metrics initial code here
     REGISTER_STARROCKS_METRIC(fragment_requests_total);
@@ -112,6 +112,16 @@ StarRocksMetrics::StarRocksMetrics() : _metrics(_s_registry_name), _table_metric
     REGISTER_STARROCKS_METRIC(primary_key_table_error_state_total);
     REGISTER_STARROCKS_METRIC(primary_key_wait_apply_done_duration_ms);
     REGISTER_STARROCKS_METRIC(primary_key_wait_apply_done_total);
+
+    // clone
+    _metrics.register_metric("clone_task_copy_bytes", MetricLabels().add("type", "INTER_NODE"),
+                             &clone_task_inter_node_copy_bytes);
+    _metrics.register_metric("clone_task_copy_bytes", MetricLabels().add("type", "INTRA_NODE"),
+                             &clone_task_intra_node_copy_bytes);
+    _metrics.register_metric("clone_task_copy_duration_ms", MetricLabels().add("type", "INTER_NODE"),
+                             &clone_task_inter_node_copy_duration_ms);
+    _metrics.register_metric("clone_task_copy_duration_ms", MetricLabels().add("type", "INTRA_NODE"),
+                             &clone_task_intra_node_copy_duration_ms);
 
     // push request
     _metrics.register_metric("push_requests_total", MetricLabels().add("status", "SUCCESS"),

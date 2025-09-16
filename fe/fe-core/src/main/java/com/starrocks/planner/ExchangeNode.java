@@ -36,16 +36,11 @@ package com.starrocks.planner;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.MoreObjects.ToStringHelper;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import com.starrocks.analysis.Analyzer;
-import com.starrocks.analysis.Expr;
-import com.starrocks.analysis.SlotRef;
-import com.starrocks.analysis.SortInfo;
-import com.starrocks.analysis.TupleId;
-import com.starrocks.common.StarRocksException;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.qe.SessionVariable;
+import com.starrocks.sql.ast.expression.Expr;
+import com.starrocks.sql.ast.expression.SlotRef;
 import com.starrocks.sql.optimizer.base.DistributionSpec;
 import com.starrocks.sql.optimizer.operator.TopNType;
 import com.starrocks.thrift.TExchangeNode;
@@ -178,12 +173,6 @@ public class ExchangeNode extends PlanNode {
         nullableTupleIds.addAll(getChild(0).getNullableTupleIds());
     }
 
-    @Override
-    public void init(Analyzer analyzer) throws StarRocksException {
-        super.init(analyzer);
-        Preconditions.checkState(conjuncts.isEmpty());
-    }
-
     /**
      * Set the parameters used to merge sorted input streams. This can be called
      * after init().
@@ -241,7 +230,7 @@ public class ExchangeNode extends PlanNode {
             if (CollectionUtils.isNotEmpty(partitionExprs)) {
                 output.append(detailPrefix)
                         .append("partition exprs: ")
-                        .append(getVerboseExplain(partitionExprs, detailLevel))
+                        .append(explainExpr(detailLevel, partitionExprs))
                         .append('\n');
             }
         }

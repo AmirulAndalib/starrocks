@@ -104,6 +104,7 @@ Status OlapTableSink::init(const TDataSink& t_sink, RuntimeState* state) {
     _is_lake_table = table_sink.is_lake_table;
     _write_txn_log = table_sink.write_txn_log;
     _enable_data_file_bundling = table_sink.enable_data_file_bundling;
+    _is_multi_statements_txn = table_sink.is_multi_statements_txn;
     _keys_type = table_sink.keys_type;
     if (table_sink.__isset.null_expr_in_auto_increment) {
         _null_expr_in_auto_increment = table_sink.null_expr_in_auto_increment;
@@ -790,7 +791,8 @@ Status OlapTableSink::_fill_auto_increment_id_internal(Chunk* chunk, SlotDescrip
     }
 
     ColumnPtr& data_col = NullableColumn::dynamic_pointer_cast(col)->data_column();
-    Filter filter(NullableColumn::dynamic_pointer_cast(col)->immutable_null_column_data());
+    const auto null_datas = NullableColumn::dynamic_pointer_cast(col)->immutable_null_column_data();
+    Filter filter(null_datas.begin(), null_datas.end());
 
     Filter init_filter(chunk->num_rows(), 0);
 
@@ -991,26 +993,28 @@ void OlapTableSink::_validate_data(RuntimeState* state, Chunk* chunk) {
         if (_has_auto_increment && _auto_increment_slot_id == desc->id() && column_ptr->is_nullable()) {
             auto* nullable = down_cast<NullableColumn*>(column_ptr.get());
             // If nullable->has_null() && _null_expr_in_auto_increment == true, it means that user specify a
-            // null value in auto increment column, we abort the entire chunk and append a single error msg.
+            // null value in auto increment column, we abort the all rows with null.
             // Because be know nothing about whether this row is specified by the user as null or setted during planning.
             if (nullable->has_null() && _null_expr_in_auto_increment) {
                 std::stringstream ss;
                 ss << "NULL value in auto increment column '" << desc->col_name() << "'";
-
+                NullData& nulls = nullable->null_column_data();
                 for (size_t j = 0; j < num_rows; ++j) {
-                    _validate_selection[j] = VALID_SEL_FAILED;
-                    // If enable_log_rejected_record is true, we need to log the rejected record.
-                    if (nullable->is_null(j) && state->enable_log_rejected_record()) {
-                        state->append_rejected_record_to_file(chunk->rebuild_csv_row(j, ","), ss.str(), "");
+                    if (nulls[j] && _validate_selection[j] != VALID_SEL_FAILED) {
+                        _validate_selection[j] = VALID_SEL_FAILED;
+#if BE_TEST
+                        LOG(INFO) << ss.str();
+#else
+                        if (!state->has_reached_max_error_msg_num()) {
+                            state->append_error_msg_to_file(chunk->debug_row(j), ss.str());
+                        }
+#endif
+                        // If enable_log_rejected_record is true, we need to log the rejected record.
+                        if (state->enable_log_rejected_record()) {
+                            state->append_rejected_record_to_file(chunk->rebuild_csv_row(j, ","), ss.str(), "");
+                        }
                     }
                 }
-#if BE_TEST
-                LOG(INFO) << ss.str();
-#else
-                if (!state->has_reached_max_error_msg_num()) {
-                    state->append_error_msg_to_file("", ss.str());
-                }
-#endif
             }
             chunk->update_column(nullable->data_column(), desc->id());
         }

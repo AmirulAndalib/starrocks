@@ -15,7 +15,6 @@
 package com.starrocks.catalog.system.information;
 
 import com.google.api.client.util.Lists;
-import com.starrocks.analysis.TableName;
 import com.starrocks.catalog.ColumnId;
 import com.starrocks.catalog.InternalCatalog;
 import com.starrocks.catalog.Type;
@@ -24,6 +23,7 @@ import com.starrocks.catalog.system.SystemTable;
 import com.starrocks.common.FeConstants;
 import com.starrocks.common.Pair;
 import com.starrocks.common.util.TimeUtils;
+import com.starrocks.sql.ast.expression.TableName;
 import com.starrocks.sql.optimizer.Utils;
 import com.starrocks.sql.optimizer.operator.scalar.BinaryPredicateOperator;
 import com.starrocks.sql.optimizer.operator.scalar.ColumnRefOperator;
@@ -139,9 +139,9 @@ public class ColumnStatsUsageSystemTable extends SystemTable {
         Optional<Pair<TableName, ColumnId>> names = columnFullId.toNames();
         List<ScalarOperator> result = Lists.newArrayList();
         result.add(ConstantOperator.createVarchar(InternalCatalog.DEFAULT_INTERNAL_CATALOG_NAME));
-        result.add(ConstantOperator.createVarchar(names.map(x -> x.first.getDb()).orElse(null)));
-        result.add(ConstantOperator.createVarchar(names.map(x -> x.first.getTbl()).orElse(null)));
-        result.add(ConstantOperator.createVarchar(names.map(x -> x.second.getId()).orElse(null)));
+        result.add(ConstantOperator.createNullableObject(names.map(x -> x.first.getDb()).orElse(null), Type.VARCHAR));
+        result.add(ConstantOperator.createNullableObject(names.map(x -> x.first.getTbl()).orElse(null), Type.VARCHAR));
+        result.add(ConstantOperator.createNullableObject(names.map(x -> x.second.getId()).orElse(null), Type.VARCHAR));
         result.add(ConstantOperator.createVarchar(columnUsage.getUseCaseString()));
         result.add(ConstantOperator.createDatetime(columnUsage.getLastUsed()));
         result.add(ConstantOperator.createDatetime(columnUsage.getCreated()));

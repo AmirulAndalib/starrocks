@@ -27,23 +27,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
-import com.starrocks.analysis.AnalyticExpr;
-import com.starrocks.analysis.CastExpr;
-import com.starrocks.analysis.CompoundPredicate;
-import com.starrocks.analysis.DateLiteral;
-import com.starrocks.analysis.Expr;
-import com.starrocks.analysis.FunctionCallExpr;
-import com.starrocks.analysis.FunctionName;
-import com.starrocks.analysis.GroupingFunctionCallExpr;
-import com.starrocks.analysis.IntLiteral;
-import com.starrocks.analysis.LiteralExpr;
-import com.starrocks.analysis.MaxLiteral;
-import com.starrocks.analysis.OrderByElement;
-import com.starrocks.analysis.ParseNode;
-import com.starrocks.analysis.SlotRef;
-import com.starrocks.analysis.StringLiteral;
-import com.starrocks.analysis.Subquery;
-import com.starrocks.analysis.TableName;
 import com.starrocks.authorization.AccessDeniedException;
 import com.starrocks.authorization.ObjectType;
 import com.starrocks.authorization.PrivilegeType;
@@ -76,25 +59,28 @@ import com.starrocks.common.FeConstants;
 import com.starrocks.common.Pair;
 import com.starrocks.common.util.DateUtils;
 import com.starrocks.common.util.TimeUtils;
+import com.starrocks.lake.LakeMaterializedView;
+import com.starrocks.lake.LakeTable;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.server.CatalogMgr;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.service.PartitionMeasure;
 import com.starrocks.sql.ast.AddPartitionClause;
 import com.starrocks.sql.ast.AstTraverser;
-import com.starrocks.sql.ast.AstVisitor;
+import com.starrocks.sql.ast.AstVisitorExtendInterface;
 import com.starrocks.sql.ast.CTERelation;
 import com.starrocks.sql.ast.ColumnDef;
 import com.starrocks.sql.ast.DeleteStmt;
 import com.starrocks.sql.ast.DistributionDesc;
 import com.starrocks.sql.ast.ExpressionPartitionDesc;
-import com.starrocks.sql.ast.FieldReference;
 import com.starrocks.sql.ast.FileTableFunctionRelation;
 import com.starrocks.sql.ast.InsertStmt;
 import com.starrocks.sql.ast.JoinRelation;
 import com.starrocks.sql.ast.ListPartitionDesc;
 import com.starrocks.sql.ast.MultiItemListPartitionDesc;
 import com.starrocks.sql.ast.NormalizedTableFunctionRelation;
+import com.starrocks.sql.ast.OrderByElement;
+import com.starrocks.sql.ast.ParseNode;
 import com.starrocks.sql.ast.PartitionDesc;
 import com.starrocks.sql.ast.PartitionKeyDesc;
 import com.starrocks.sql.ast.PartitionValue;
@@ -112,7 +98,24 @@ import com.starrocks.sql.ast.TableRelation;
 import com.starrocks.sql.ast.UpdateStmt;
 import com.starrocks.sql.ast.ValuesRelation;
 import com.starrocks.sql.ast.ViewRelation;
+import com.starrocks.sql.ast.expression.AnalyticExpr;
+import com.starrocks.sql.ast.expression.CastExpr;
+import com.starrocks.sql.ast.expression.CompoundPredicate;
+import com.starrocks.sql.ast.expression.DateLiteral;
+import com.starrocks.sql.ast.expression.Expr;
+import com.starrocks.sql.ast.expression.FieldReference;
+import com.starrocks.sql.ast.expression.FunctionCallExpr;
+import com.starrocks.sql.ast.expression.FunctionName;
+import com.starrocks.sql.ast.expression.GroupingFunctionCallExpr;
+import com.starrocks.sql.ast.expression.IntLiteral;
+import com.starrocks.sql.ast.expression.LiteralExpr;
+import com.starrocks.sql.ast.expression.MaxLiteral;
+import com.starrocks.sql.ast.expression.SlotRef;
+import com.starrocks.sql.ast.expression.StringLiteral;
+import com.starrocks.sql.ast.expression.Subquery;
+import com.starrocks.sql.ast.expression.TableName;
 import com.starrocks.sql.common.ErrorType;
+import com.starrocks.sql.common.PCell;
 import com.starrocks.sql.common.PListCell;
 import com.starrocks.sql.common.StarRocksPlannerException;
 import com.starrocks.sql.optimizer.operator.scalar.CallOperator;
@@ -353,7 +356,26 @@ public class AnalyzerUtils {
         }
     }
 
-    private static class DBCollector implements AstVisitor<Void, Void> {
+    /**
+     * Shallow copy the table object for query purpose
+     */
+    public static OlapTable getShadowCopyTable(OlapTable olapTable) {
+        OlapTable copiedTable;
+        if (olapTable instanceof LakeMaterializedView) {
+            copiedTable = new LakeMaterializedView();
+        } else if (olapTable instanceof MaterializedView) {
+            copiedTable = new MaterializedView();
+        } else if (olapTable instanceof LakeTable) {
+            copiedTable = new LakeTable();
+        } else {
+            copiedTable = new OlapTable();
+        }
+
+        olapTable.copyOnlyForQuery(copiedTable);
+        return copiedTable;
+    }
+
+    private static class DBCollector implements AstVisitorExtendInterface<Void, Void> {
         private final Map<String, Database> dbs;
         private final ConnectContext session;
 
@@ -914,8 +936,7 @@ public class AnalyzerUtils {
             int relatedMVCount = node.getTable().getRelatedMaterializedViews().size();
             boolean useNonLockOptimization = Config.skip_whole_phase_lock_mv_limit < 0 ||
                     relatedMVCount <= Config.skip_whole_phase_lock_mv_limit;
-            // TODO: not support LakeTable right now
-            if ((table.isOlapTableOrMaterializedView() && useNonLockOptimization)) {
+            if ((table.isNativeTableOrMaterializedView() && useNonLockOptimization)) {
                 // OlapTable can be copied via copyOnlyForQuery
                 return null;
             } else if (IMMUTABLE_EXTERNAL_TABLES.contains(table.getType())) {
@@ -987,7 +1008,6 @@ public class AnalyzerUtils {
             return null;
         }
 
-        // TODO: support cloud native table and mv
         private Table copyTable(Table originalTable) {
             if (!(originalTable instanceof OlapTable)) {
                 return null;
@@ -999,17 +1019,8 @@ public class AnalyzerUtils {
                 return existed;
             }
 
-            OlapTable copied = null;
-            if (originalTable.isOlapTable()) {
-                copied = new OlapTable();
-            } else if (originalTable.isOlapMaterializedView()) {
-                copied = new MaterializedView();
-            } else {
-                return null;
-            }
-
+            OlapTable copied = getShadowCopyTable(table);
             olapTables.add(table);
-            table.copyOnlyForQuery(copied);
             idMap.put(tableIndexId, copied);
             return copied;
         }
@@ -1246,9 +1257,14 @@ public class AnalyzerUtils {
                 int len = ScalarType.getOlapMaxVarcharLength();
                 if (srcType instanceof ScalarType) {
                     ScalarType scalarType = (ScalarType) srcType;
-                    if (scalarType.getLength() > 0) {
-                        // Catalog's varchar length may larger than olap's max varchar length
-                        len = Integer.min(scalarType.getLength(), ScalarType.getOlapMaxVarcharLength());
+                    if (Config.transform_type_prefer_string_for_varchar) {
+                        // always use max varchar length for varchar type if transform_type_prefer_string_for_varchar is set.
+                        len = ScalarType.getOlapMaxVarcharLength();
+                    } else {
+                        if (scalarType.getLength() > 0) {
+                            // Catalog's varchar length may larger than olap's max varchar length
+                            len = Integer.min(scalarType.getLength(), ScalarType.getOlapMaxVarcharLength());
+                        }
                     }
                 }
                 newType = ScalarType.createVarcharType(len);
@@ -1383,7 +1399,8 @@ public class AnalyzerUtils {
             return getAddPartitionClauseForRangePartition(olapTable, partitionValues, isTemp, partitionNamePrefix, measure,
                     distributionDesc, (ExpressionRangePartitionInfo) partitionInfo);
         } else {
-            throw new AnalysisException("Unsupported partition type " + partitionDesc.getType());
+            PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+            throw new AnalysisException("Unsupported partition type " + partitionInfo.getType());
         }
     }
 
@@ -1411,7 +1428,7 @@ public class AnalyzerUtils {
                     ImmutableMap.of("replication_num", String.valueOf(replicationNum));
 
             // table partitions for check
-            TreeMap<String, PListCell> tablePartitions = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+            TreeMap<String, PCell> tablePartitions = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
             tablePartitions.putAll(olapTable.getListPartitionItems());
             List<String> partitionColNames = Lists.newArrayList();
             List<PartitionDesc> partitionDescs = Lists.newArrayList();
@@ -1436,14 +1453,7 @@ public class AnalyzerUtils {
                 if (!partitionColNames.contains(partitionName)) {
                     List<List<String>> partitionItems = Collections.singletonList(partitionValue);
                     PListCell cell = new PListCell(partitionItems);
-                    // If the partition name already exists and their partition values are different, change the partition name.
-                    if (tablePartitions.containsKey(partitionName) && !tablePartitions.get(partitionName).equals(cell)) {
-                        partitionName = calculateUniquePartitionName(partitionName, tablePartitions);
-                        if (tablePartitions.containsKey(partitionName)) {
-                            throw new AnalysisException(String.format("partition name %s already exists in table " +
-                                    "%s.", partitionName, olapTable.getName()));
-                        }
-                    }
+                    partitionName = calculateUniquePartitionName(partitionName, cell, tablePartitions);
                     MultiItemListPartitionDesc multiItemListPartitionDesc = new MultiItemListPartitionDesc(true,
                             partitionName, partitionItems, partitionProperties);
                     multiItemListPartitionDesc.setSystem(true);
@@ -1466,19 +1476,21 @@ public class AnalyzerUtils {
     /**
      * Calculate the unique partition name for list partition.
      */
-    private static String calculateUniquePartitionName(String partitionName,
-                                                       Map<String, PListCell> tablePartitions) {
-        // ensure partition name is unique with case-insensitive
-        int diff = partitionName.hashCode();
-        String newPartitionName = partitionName + "_" + Integer.toHexString(diff);
-        if (tablePartitions.containsKey(newPartitionName)) {
-            int i = 0;
-            do {
-                diff += 1;
-                newPartitionName = partitionName + "_" + Integer.toHexString(diff);
-            } while (i++ < 100 && tablePartitions.containsKey(newPartitionName));
+    public static String calculateUniquePartitionName(String partitionName, PCell cell,
+                                                      Map<String, PCell> tablePartitions) throws AnalysisException {
+        String orignialPartitionName = partitionName;
+        int i = 0;
+        // If the partition name already exists and their partition values are different, change the partition name.
+        while (tablePartitions.containsKey(partitionName) && !tablePartitions.get(partitionName).equals(cell)) {
+            // ensure partition name is unique with case-insensitive
+            int diff = orignialPartitionName.hashCode();
+            partitionName = orignialPartitionName + "_" + Integer.toHexString(diff + i);
+            if (++i > 100) {
+                // throw exception
+                throw new AnalysisException("Failed to calculate unique partition name after multiple attempts.");
+            }
         }
-        return newPartitionName;
+        return partitionName;
     }
 
     @VisibleForTesting

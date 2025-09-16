@@ -34,7 +34,6 @@
 
 package com.starrocks.qe;
 
-import com.starrocks.analysis.TableName;
 import com.starrocks.common.Status;
 import com.starrocks.common.util.TimeUtils;
 import com.starrocks.mysql.MysqlCapability;
@@ -46,6 +45,7 @@ import com.starrocks.server.WarehouseManager;
 import com.starrocks.sql.ast.InsertStmt;
 import com.starrocks.sql.ast.QueryStatement;
 import com.starrocks.sql.ast.ValuesRelation;
+import com.starrocks.sql.ast.expression.TableName;
 import com.starrocks.thrift.TStatus;
 import com.starrocks.thrift.TStatusCode;
 import com.starrocks.thrift.TUniqueId;
@@ -144,7 +144,7 @@ public class ConnectContextTest {
         Assertions.assertNotNull(ctx.toThreadInfo());
         long currentTimeMillis = System.currentTimeMillis();
         List<String> row = ctx.toThreadInfo().toRow(currentTimeMillis, false);
-        Assertions.assertEquals(12, row.size());
+        Assertions.assertEquals(14, row.size());
         Assertions.assertEquals("101", row.get(0));
         Assertions.assertEquals("testUser", row.get(1));
         Assertions.assertEquals("127.0.0.1:12345", row.get(2));
@@ -167,8 +167,6 @@ public class ConnectContextTest {
         Assertions.assertEquals(new TUniqueId(100, 200), ctx.getExecutionId());
 
         // GlobalStateMgr
-        Assertions.assertNull(ctx.getGlobalStateMgr());
-        ctx.setGlobalStateMgr(globalStateMgr);
         Assertions.assertNotNull(ctx.getGlobalStateMgr());
 
         // clean up
@@ -453,5 +451,23 @@ public class ConnectContextTest {
         ComputeResource resource = WarehouseComputeResource.of(1L);
         ctx.setCurrentComputeResource(resource);
         Assertions.assertEquals(resource, ctx.getCurrentComputeResourceNoAcquire());
+    }
+
+    @Test
+    public void testConnectContextNoGlobalStateMgrNPE() {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext == null) {
+            connectContext = new ConnectContext();
+            // not set globalStateMgr
+            connectContext.setThreadLocalInfo();
+        }
+        // ConnectContext.get() should have non-nullable globalStateMgr even if forget to manually create the context
+        // without setting globalStateMgr explicitly
+        Assertions.assertNotNull(ConnectContext.get().getGlobalStateMgr());
+
+        connectContext = ConnectContext.get();
+        // set globalStateMgr explicitly
+        connectContext.setGlobalStateMgr(GlobalStateMgr.getCurrentState());
+        Assertions.assertNotNull(ConnectContext.get().getGlobalStateMgr());
     }
 }

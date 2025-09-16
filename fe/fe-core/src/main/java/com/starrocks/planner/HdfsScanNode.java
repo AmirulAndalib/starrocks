@@ -16,20 +16,19 @@ package com.starrocks.planner;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
-import com.starrocks.analysis.DescriptorTable;
-import com.starrocks.analysis.Expr;
-import com.starrocks.analysis.SlotDescriptor;
-import com.starrocks.analysis.TupleDescriptor;
 import com.starrocks.catalog.HiveTable;
 import com.starrocks.catalog.Type;
+import com.starrocks.connector.BucketProperty;
 import com.starrocks.connector.CatalogConnector;
 import com.starrocks.connector.RemoteFilesSampleStrategy;
 import com.starrocks.connector.hive.HiveConnectorScanRangeSource;
 import com.starrocks.credential.CloudConfiguration;
 import com.starrocks.datacache.DataCacheOptions;
 import com.starrocks.server.GlobalStateMgr;
+import com.starrocks.sql.ast.expression.Expr;
 import com.starrocks.sql.optimizer.ScanOptimizeOption;
 import com.starrocks.sql.plan.HDFSScanNodePredicates;
+import com.starrocks.thrift.TBucketProperty;
 import com.starrocks.thrift.TCloudConfiguration;
 import com.starrocks.thrift.TDataCacheOptions;
 import com.starrocks.thrift.TExplainLevel;
@@ -38,6 +37,7 @@ import com.starrocks.thrift.TPlanNode;
 import com.starrocks.thrift.TPlanNodeType;
 import com.starrocks.thrift.TScanRangeLocations;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import static com.starrocks.thrift.TExplainLevel.VERBOSE;
@@ -56,6 +56,7 @@ import static com.starrocks.thrift.TExplainLevel.VERBOSE;
  * TODO: Dictionary pruning
  */
 public class HdfsScanNode extends ScanNode {
+    private volatile boolean reachLimit = false;
     private HiveConnectorScanRangeSource scanRangeSource = null;
 
     private HiveTable hiveTable = null;
@@ -112,7 +113,12 @@ public class HdfsScanNode extends ScanNode {
 
     @Override
     public boolean hasMoreScanRanges() {
-        return scanRangeSource.hasMoreOutput();
+        return !reachLimit && scanRangeSource.hasMoreOutput();
+    }
+
+    @Override
+    public void setReachLimit() {
+        reachLimit = true;
     }
 
     @Override
@@ -126,19 +132,19 @@ public class HdfsScanNode extends ScanNode {
         }
         if (!scanNodePredicates.getPartitionConjuncts().isEmpty()) {
             output.append(prefix).append("PARTITION PREDICATES: ").append(
-                    getExplainString(scanNodePredicates.getPartitionConjuncts())).append("\n");
+                    explainExpr(scanNodePredicates.getPartitionConjuncts())).append("\n");
         }
         if (!scanNodePredicates.getNonPartitionConjuncts().isEmpty()) {
             output.append(prefix).append("NON-PARTITION PREDICATES: ").append(
-                    getExplainString(scanNodePredicates.getNonPartitionConjuncts())).append("\n");
+                    explainExpr(scanNodePredicates.getNonPartitionConjuncts())).append("\n");
         }
         if (!scanNodePredicates.getNoEvalPartitionConjuncts().isEmpty()) {
             output.append(prefix).append("NO EVAL-PARTITION PREDICATES: ").append(
-                    getExplainString(scanNodePredicates.getNoEvalPartitionConjuncts())).append("\n");
+                    explainExpr(scanNodePredicates.getNoEvalPartitionConjuncts())).append("\n");
         }
         if (!scanNodePredicates.getMinMaxConjuncts().isEmpty()) {
             output.append(prefix).append("MIN/MAX PREDICATES: ").append(
-                    getExplainString(scanNodePredicates.getMinMaxConjuncts())).append("\n");
+                    explainExpr(scanNodePredicates.getMinMaxConjuncts())).append("\n");
         }
 
         output.append(prefix).append(
@@ -222,6 +228,14 @@ public class HdfsScanNode extends ScanNode {
             tDataCacheOptions.setEnable_populate_datacache(options.isEnablePopulate());
             tHdfsScanNode.setDatacache_options(tDataCacheOptions);
         }
+    }
+
+    public static void setBucketProperties(THdfsScanNode tHdfsScanNode, List<BucketProperty> bucketProperties) {
+        List<TBucketProperty> tBucketProperties = new ArrayList<>();
+        for (BucketProperty bucketProperty : bucketProperties) {
+            tBucketProperties.add(bucketProperty.toThrift());
+        }
+        tHdfsScanNode.setBucket_properties(tBucketProperties);
     }
 
     public static void setMinMaxConjunctsToThrift(THdfsScanNode tHdfsScanNode, ScanNode scanNode,

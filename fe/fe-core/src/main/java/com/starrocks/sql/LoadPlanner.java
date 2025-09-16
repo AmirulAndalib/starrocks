@@ -18,13 +18,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-import com.starrocks.analysis.Analyzer;
-import com.starrocks.analysis.BrokerDesc;
-import com.starrocks.analysis.DescriptorTable;
-import com.starrocks.analysis.Expr;
-import com.starrocks.analysis.SlotDescriptor;
-import com.starrocks.analysis.SlotRef;
-import com.starrocks.analysis.TupleDescriptor;
 import com.starrocks.catalog.AggregateType;
 import com.starrocks.catalog.Column;
 import com.starrocks.catalog.KeysType;
@@ -47,6 +40,7 @@ import com.starrocks.load.loadv2.LoadJob;
 import com.starrocks.load.streamload.StreamLoadInfo;
 import com.starrocks.planner.DataPartition;
 import com.starrocks.planner.DataSink;
+import com.starrocks.planner.DescriptorTable;
 import com.starrocks.planner.ExchangeNode;
 import com.starrocks.planner.FileScanNode;
 import com.starrocks.planner.OlapTableSink;
@@ -54,13 +48,17 @@ import com.starrocks.planner.PlanFragment;
 import com.starrocks.planner.PlanFragmentId;
 import com.starrocks.planner.PlanNodeId;
 import com.starrocks.planner.ScanNode;
+import com.starrocks.planner.SlotDescriptor;
 import com.starrocks.planner.StreamLoadScanNode;
+import com.starrocks.planner.TupleDescriptor;
 import com.starrocks.qe.ConnectContext;
-import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.server.WarehouseManager;
 import com.starrocks.sql.analyzer.SemanticException;
+import com.starrocks.sql.ast.BrokerDesc;
 import com.starrocks.sql.ast.ImportColumnDesc;
 import com.starrocks.sql.ast.PartitionNames;
+import com.starrocks.sql.ast.expression.Expr;
+import com.starrocks.sql.ast.expression.SlotRef;
 import com.starrocks.sql.optimizer.statistics.ColumnDict;
 import com.starrocks.sql.optimizer.statistics.IDictManager;
 import com.starrocks.sql.plan.ExecPlan;
@@ -122,7 +120,6 @@ public class LoadPlanner {
     private List<BrokerFileGroup> fileGroups;
     private List<List<TBrokerFileStatus>> fileStatusesList;
     private int filesAdded;
-    private Analyzer analyzer;
 
     IdGenerator<PlanNodeId> planNodeGenerator = PlanNodeId.createGenerator();
 
@@ -176,10 +173,8 @@ public class LoadPlanner {
         } else {
             this.parallelInstanceNum = Config.load_parallel_instance_num;
         }
-        this.analyzer = new Analyzer(GlobalStateMgr.getCurrentState(), this.context);
-        this.analyzer.setTimezone(timezone);
         this.timezone = timezone;
-        this.descTable = this.analyzer.getDescTbl();
+        this.descTable = new DescriptorTable();
         this.loadMemLimit = loadMemLimit;
         this.execMemLimit = execMemLimit;
         this.sessionVariables = sessionVariables;
@@ -219,8 +214,7 @@ public class LoadPlanner {
         this.parallelInstanceNum = parallelInstanceNum;
         this.columnDescs = columnDescs;
         this.streamLoadInfo = streamLoadInfo;
-        this.analyzer = new Analyzer(GlobalStateMgr.getCurrentState(), this.context);
-        this.descTable = analyzer.getDescTbl();
+        this.descTable = new DescriptorTable();
         this.enableDictOptimize = Config.enable_dict_optimize_stream_load;
         this.startTime = System.currentTimeMillis();
         this.sessionVariables = sessionVariables;
@@ -433,8 +427,8 @@ public class LoadPlanner {
                     parallelInstanceNum);
             fileScanNode.setUseVectorizedLoad(true);
             fileScanNode.setJSONOptions(jsonOptions);
-            fileScanNode.init(analyzer);
-            fileScanNode.finalizeStats(analyzer);
+            fileScanNode.init(descTable);
+            fileScanNode.finalizeStats();
             fileScanNode.setComputeResource(computeResource);
             scanNode = fileScanNode;
         } else if (this.etlJobType == EtlJobType.STREAM_LOAD || this.etlJobType == EtlJobType.ROUTINE_LOAD) {
@@ -445,8 +439,8 @@ public class LoadPlanner {
                 streamScanNode.setBatchWrite(batchWriteIntervalMs, batchWriteParameters, batchWriteBackendIds);
             }
             streamScanNode.setUseVectorizedLoad(true);
-            streamScanNode.init(analyzer);
-            streamScanNode.finalizeStats(analyzer);
+            streamScanNode.init(descTable);
+            streamScanNode.finalizeStats();
             streamScanNode.setComputeResource(computeResource);
             scanNode = streamScanNode;
         }
