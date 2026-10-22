@@ -49,11 +49,11 @@ under the License.
         <junit.version>5.8.2</junit.version>
         <unboundid.ldapsdk.version>7.0.5</unboundid.ldapsdk.version>
         <jprotobuf-starrocks.version>1.0.0</jprotobuf-starrocks.version>
-        <log4j.version>2.19.0</log4j.version>
-        <jackson.version>2.21.4</jackson.version>
+        <log4j.version>2.25.5</log4j.version>
+        <jackson.version>2.21.7</jackson.version>
         <!-- jackson-annotations doesn't have 2.21.4 version released -->
         <jackson-annotations.version>2.21</jackson-annotations.version>
-        <spark.version>3.5.7</spark.version>
+        <spark.version>3.5.8</spark.version>
         <parquet.version>1.16.0</parquet.version>
         <ranger.version>2.9.0</ranger.version>
         <orc.version>1.9.1</orc.version>
@@ -69,7 +69,7 @@ under the License.
         <odps.version>0.48.7-public</odps.version>
         <kudu.version>1.17.1</kudu.version>
         <hikaricp.version>7.0.2</hikaricp.version>
-        <kafka-clients.version>3.9.1</kafka-clients.version>
+        <kafka-clients.version>3.9.2</kafka-clients.version>
         <arrow.version>18.0.0</arrow.version>
         <grpc.version>1.76.0</grpc.version>
         <io.netty.version>4.1.137.Final</io.netty.version>
@@ -77,7 +77,7 @@ under the License.
         <aws-v2-sdk.version>2.42.1</aws-v2-sdk.version>
         <avro.version>1.12.0</avro.version>
         <dnsjava.version>3.6.3</dnsjava.version>
-        <nimbusds.version>9.37.2</nimbusds.version>
+        <nimbusds.version>9.37.4</nimbusds.version>
         <protobuf-java.version>3.25.9</protobuf-java.version>
         <paimon.version>2.0.0</paimon.version>
         <fluss.version>0.9.1-incubating</fluss.version>
@@ -93,7 +93,7 @@ under the License.
         <fastutil.version>8.5.15</fastutil.version>
         <commons-beanutils.version>1.11.0</commons-beanutils.version>
         <hbase.version>2.6.2</hbase.version>
-        <lz4-java.version>1.10.1</lz4-java.version>
+        <lz4-java.version>1.11.4</lz4-java.version>
         <async-profiler.version>4.0</async-profiler.version>
         <maven.surefire.plugin.version>3.2.5</maven.surefire.plugin.version>
         <!-- Stay on 1.49.4: the hazendaz 2.2.0+ line regresses @Mocked on some third-party classes
@@ -271,7 +271,7 @@ under the License.
             <dependency>
                 <groupId>commons-lang</groupId>
                 <artifactId>commons-lang</artifactId>
-                <version>2.4</version>
+                <version>2.6</version>
             </dependency>
 
             <!-- https://mvnrepository.com/artifact/org.apache.commons/commons-lang3 -->
@@ -279,7 +279,7 @@ under the License.
             <dependency>
                 <groupId>org.apache.commons</groupId>
                 <artifactId>commons-lang3</artifactId>
-                <version>3.18.0</version>
+                <version>3.21.0</version>
             </dependency>
 
             <!-- https://mvnrepository.com/artifact/org.apache.commons/commons-pool2 -->
@@ -1282,7 +1282,7 @@ under the License.
             <dependency>
                 <groupId>org.mariadb.jdbc</groupId>
                 <artifactId>mariadb-java-client</artifactId>
-                <version>3.3.2</version>
+                <version>3.3.5</version>
             </dependency>
 
             <!-- https://mvnrepository.com/artifact/org.postgresql/postgresql -->
